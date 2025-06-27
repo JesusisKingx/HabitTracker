@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "Habit Tracker: Pro",
+    "slug": "HabitTracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon-v2.png",
+    "userInterfaceStyle": "light",
+    "scheme": "habittracker",
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#E8F5E8"
+    },
+    "ios": {
+      "bundleIdentifier": "com.ktforge.habittracker",
+      "buildNumber": "1",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSUserNotificationsUsageDescription": "HabitTracker sends daily reminders to help you maintain your habits and build lasting routines.",
+        "NSCalendarsUsageDescription": "HabitTracker may access your calendar to help schedule habit reminders.",
+        "NSRemindersUsageDescription": "HabitTracker can create reminders to help you stay consistent with your habits."
+      },
+      "associatedDomains": ["applinks:ktforge.dev"],
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#E8F5E8"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#4CAF50",
+          "defaultChannel": "default"
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "extra": {
+      "router": {
+        "origin": "habittracker://"
+      },
+      "eas": {
+        "projectId": "e5065765-70ae-4732-a7bc-e0796fdbfb53"
+      }
+    },
+    "privacy": {
+      "analytics": false,
+      "crashes": false
+    }
+  }
+}
