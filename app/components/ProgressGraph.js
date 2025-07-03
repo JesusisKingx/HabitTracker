@@ -1,4 +1,3 @@
-import * as shape from 'd3-shape';
 import {
   eachMonthOfInterval,
   endOfMonth,
@@ -7,31 +6,32 @@ import {
   startOfMonth,
   subMonths,
 } from 'date-fns';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Grid, LineChart, XAxis, YAxis } from 'react-native-svg-charts';
+import { LineChart } from 'react-native-chart-kit';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-const ProgressGraph = ({
+export default function ProgressGraph({
   visible,
   onClose,
   habitData,
   selectedHabit,
   theme,
-}) => {
+}) {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState('6months'); // '3months', '6months', '1year', 'all'
+  const [timeRange, setTimeRange] = useState('6months');
 
   useEffect(() => {
     if (visible && selectedHabit && habitData[selectedHabit.id]) {
@@ -41,520 +41,282 @@ const ProgressGraph = ({
 
   const processHabitData = () => {
     setLoading(true);
-
-    const habitCompletions = habitData[selectedHabit.id] || {};
+    const completions = habitData[selectedHabit.id] || {};
     const today = new Date();
     let startDate;
 
-    // Determine date range
     switch (timeRange) {
       case '3months':
         startDate = subMonths(today, 3);
-        break;
-      case '6months':
-        startDate = subMonths(today, 6);
         break;
       case '1year':
         startDate = subMonths(today, 12);
         break;
       case 'all':
-        // Find earliest date in data
-        const dates = Object.keys(habitCompletions).sort();
-        startDate = dates.length > 0 ? parseISO(dates[0]) : subMonths(today, 6);
+        const dates = Object.keys(completions).sort();
+        startDate = dates.length ? parseISO(dates[0]) : subMonths(today, 6);
         break;
       default:
         startDate = subMonths(today, 6);
     }
 
-    // Get all months in range
-    const months = eachMonthOfInterval({
-      start: startDate,
-      end: today,
-    });
-
-    // Calculate completion percentage for each month
+    const months = eachMonthOfInterval({ start: startDate, end: today });
     const monthlyData = months.map(month => {
-      const monthStart = startOfMonth(month);
-      const monthEnd = endOfMonth(month);
-
-      let totalDays = 0;
-      let completedDays = 0;
-
-      // Check each day in the month
-      for (
-        let d = new Date(monthStart);
-        d <= monthEnd;
-        d.setDate(d.getDate() + 1)
-      ) {
-        const dateString = format(d, 'yyyy-MM-dd');
+      const start = startOfMonth(month),
+        end = endOfMonth(month);
+      let total = 0,
+        done = 0;
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const dayOfWeek = d.getDay();
-
-        // Only count days that are in the tracking schedule
-        if (selectedHabit.trackingDays?.includes(dayOfWeek) ?? true) {
-          // Don't count future days
-          if (d <= today) {
-            totalDays++;
-            if (habitCompletions[dateString] === 'completed') {
-              completedDays++;
-            }
-          }
+        if (
+          (selectedHabit.trackingDays?.includes(dayOfWeek) ?? true) &&
+          d <= today
+        ) {
+          total++;
+          if (completions[format(d, 'yyyy-MM-dd')] === 'completed') done++;
         }
       }
-
-      const percentage =
-        totalDays > 0 ? Math.round((completedDays / totalDays) * 100) : 0;
-
-      return {
-        month: format(month, 'MMM'),
-        year: format(month, 'yyyy'),
-        value: percentage,
-        totalDays,
-        completedDays,
-      };
+      return Math.round(total ? (done / total) * 100 : 0);
     });
 
     setChartData(monthlyData);
     setLoading(false);
   };
 
-  const getChartColor = () => {
-    return selectedHabit?.color || '#4CAF50';
+  const color = selectedHabit?.color || '#4CAF50';
+
+  const labels = chartData.map((_, i) =>
+    format(
+      eachMonthOfInterval({
+        start: subMonths(new Date(), chartData.length - 1),
+        end: new Date(),
+      })[i],
+      'MMM'
+    )
+  );
+
+  const config = {
+    backgroundGradientFrom: theme === 'dark' ? '#1C1C1E' : '#FFFFFF',
+    backgroundGradientTo: theme === 'dark' ? '#1C1C1E' : '#FFFFFF',
+    color: () => color,
+    labelColor: () => (theme === 'dark' ? '#8E8E93' : '#666666'),
+    strokeWidth: 3,
+    propsForDots: { r: '4', strokeWidth: '2', stroke: color },
   };
 
-  const axesSvg = {
-    fontSize: 10,
-    fill: theme === 'dark' ? '#8E8E93' : '#666666',
+  const trend = () => {
+    if (chartData.length < 2) return '';
+    const recent = chartData.slice(-3),
+      older = chartData.slice(0, -3);
+    const avgR = recent.reduce((a, b) => a + b, 0) / recent.length;
+    const avgO = older.length
+      ? older.reduce((a, b) => a + b, 0) / older.length
+      : 0;
+    return avgR > avgO + 10
+      ? '📈 Great improvement!'
+      : avgR < avgO - 10
+        ? '📉 Your consistency has declined.'
+        : '➡️ Your consistency is stable.';
   };
-  const verticalContentInset = { top: 10, bottom: 10 };
-  const xAxisHeight = 30;
+
+  if (!visible) return null;
 
   return (
     <Modal
       visible={visible}
       animationType="slide"
-      transparent={true}
+      transparent
       onRequestClose={onClose}
     >
       <View
-        style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}
+        style={[
+          styles.overlay,
+          {
+            backgroundColor:
+              theme === 'dark' ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.5)',
+          },
+        ]}
       >
         <View
           style={[
-            styles.modalContent,
-            { backgroundColor: theme === 'dark' ? '#1C1C1E' : '#FFFFFF' },
+            styles.modal,
+            { backgroundColor: theme === 'dark' ? '#1C1C1E' : '#FFF' },
           ]}
         >
-          <View style={styles.modalHeader}>
+          <View style={styles.header}>
             <Text
               style={[
-                styles.modalTitle,
-                { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                styles.title,
+                { color: theme === 'dark' ? '#FFF' : '#333' },
               ]}
             >
               Progress Graph
             </Text>
-            <TouchableOpacity
-              style={[
-                styles.closeButton,
-                { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F5F5F5' },
-              ]}
-              onPress={onClose}
-            >
+            <TouchableOpacity onPress={onClose}>
               <Text
-                style={[
-                  styles.closeButtonText,
-                  { color: theme === 'dark' ? '#FFFFFF' : '#666666' },
-                ]}
+                style={{
+                  fontSize: 18,
+                  color: theme === 'dark' ? '#FFF' : '#666',
+                }}
               >
                 ✕
               </Text>
             </TouchableOpacity>
           </View>
-
-          <ScrollView
-            style={styles.scrollView}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Habit Info */}
+          <ScrollView contentContainerStyle={{ padding: 16 }}>
             <View
               style={[
-                styles.habitInfo,
+                styles.info,
                 { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
               ]}
             >
-              <View
-                style={[styles.colorDot, { backgroundColor: getChartColor() }]}
-              />
-              <View style={styles.habitTextContainer}>
+              <View style={[styles.dot, { backgroundColor: color }]} />
+              <View>
                 <Text
                   style={[
-                    styles.habitName,
-                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                    styles.habitTitle,
+                    { color: theme === 'dark' ? '#FFF' : '#333' },
                   ]}
                 >
-                  {selectedHabit?.name || 'Habit'}
+                  {selectedHabit.name}
                 </Text>
-                {selectedHabit?.description && (
+                {selectedHabit.description ? (
                   <Text
-                    style={[
-                      styles.habitDescription,
-                      { color: theme === 'dark' ? '#8E8E93' : '#666666' },
-                    ]}
+                    style={{
+                      color: theme === 'dark' ? '#8E8E93' : '#666',
+                      fontSize: 12,
+                    }}
                   >
                     {selectedHabit.description}
                   </Text>
-                )}
+                ) : null}
               </View>
             </View>
-
-            {/* Time Range Selector */}
-            <View style={styles.timeRangeContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {[
-                  { value: '3months', label: '3 Months' },
-                  { value: '6months', label: '6 Months' },
-                  { value: '1year', label: '1 Year' },
-                  { value: 'all', label: 'All Time' },
-                ].map(range => (
-                  <TouchableOpacity
-                    key={range.value}
-                    style={[
-                      styles.timeRangeButton,
-                      timeRange === range.value && styles.timeRangeButtonActive,
-                      timeRange === range.value && {
-                        backgroundColor: getChartColor(),
-                      },
-                      { borderColor: theme === 'dark' ? '#38383A' : '#E0E0E0' },
-                    ]}
-                    onPress={() => setTimeRange(range.value)}
-                  >
-                    <Text
-                      style={[
-                        styles.timeRangeText,
-                        { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
-                        timeRange === range.value && styles.timeRangeTextActive,
-                      ]}
-                    >
-                      {range.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            {/* Chart */}
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={getChartColor()} />
-              </View>
-            ) : chartData.length > 0 ? (
-              <View style={styles.chartContainer}>
-                <Text
+            <View style={{ flexDirection: 'row', marginVertical: 12 }}>
+              {['3months', '6months', '1year', 'all'].map(val => (
+                <TouchableOpacity
+                  key={val}
+                  onPress={() => setTimeRange(val)}
                   style={[
-                    styles.chartTitle,
-                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                    styles.rangeBtn,
+                    timeRange === val && { backgroundColor: color },
                   ]}
                 >
-                  Monthly Completion Rate (%)
-                </Text>
-
-                <View
+                  <Text
+                    style={{
+                      color:
+                        timeRange === val
+                          ? '#FFF'
+                          : theme === 'dark'
+                            ? '#FFF'
+                            : '#333',
+                    }}
+                  >
+                    {val === 'all' ? 'All Time' : val.replace('months', ' mo')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {loading ? (
+              <ActivityIndicator size="large" color={color} />
+            ) : chartData.length > 0 ? (
+              <>
+                {Platform.OS === 'web' ? (
+                  <View style={styles.webFallback}>
+                    <Text style={{ color: theme === 'dark' ? '#FFF' : '#333' }}>
+                      Chart not available on web
+                    </Text>
+                  </View>
+                ) : (
+                  <LineChart
+                    data={{ labels, datasets: [{ data: chartData }] }}
+                    width={screenWidth - 64}
+                    height={220}
+                    chartConfig={config}
+                    bezier
+                    style={{ borderRadius: 16 }}
+                    fromZero
+                  />
+                )}
+                <View style={styles.stats}>
+                  <Text style={[styles.statText, { color }]}>
+                    {chartData[chartData.length - 1] || 0}%
+                  </Text>
+                  <Text style={{ color: theme === 'dark' ? '#FFF' : '#333' }}>
+                    Current Month
+                  </Text>
+                  <Text
+                    style={{
+                      color: theme === 'dark' ? '#FFF' : '#333',
+                      marginLeft: 20,
+                    }}
+                  >
+                    {Math.round(
+                      chartData.reduce((a, b) => a + b, 0) / chartData.length
+                    )}
+                    % Avg
+                  </Text>
+                </View>
+                <Text
                   style={{
-                    height: 250,
-                    paddingHorizontal: 10,
-                    flexDirection: 'row',
+                    color: theme === 'dark' ? '#FFF' : '#333',
+                    marginTop: 12,
                   }}
                 >
-                  <YAxis
-                    data={chartData.map(d => d.value)}
-                    contentInset={verticalContentInset}
-                    svg={axesSvg}
-                    numberOfTicks={5}
-                    formatLabel={value => `${value}%`}
-                    style={{ marginRight: 10 }}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <LineChart
-                      style={{ flex: 1 }}
-                      data={chartData.map(d => d.value)}
-                      svg={{
-                        stroke: getChartColor(),
-                        strokeWidth: 3,
-                      }}
-                      contentInset={verticalContentInset}
-                      curve={shape.curveMonotoneX}
-                    >
-                      <Grid
-                        svg={{
-                          stroke: theme === 'dark' ? '#38383A' : '#E0E0E0',
-                        }}
-                      />
-                    </LineChart>
-                    <XAxis
-                      style={{ marginHorizontal: -10, height: xAxisHeight }}
-                      data={chartData}
-                      formatLabel={(value, index) =>
-                        chartData[index]?.month || ''
-                      }
-                      contentInset={{ left: 20, right: 20 }}
-                      svg={axesSvg}
-                    />
-                  </View>
-                </View>
-
-                {/* Stats Summary */}
-                <View
-                  style={[
-                    styles.statsContainer,
-                    {
-                      backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA',
-                    },
-                  ]}
-                >
-                  <View style={styles.statItem}>
-                    <Text
-                      style={[styles.statValue, { color: getChartColor() }]}
-                    >
-                      {chartData.length > 0
-                        ? chartData[chartData.length - 1].value
-                        : 0}
-                      %
-                    </Text>
-                    <Text
-                      style={[
-                        styles.statLabel,
-                        { color: theme === 'dark' ? '#8E8E93' : '#666666' },
-                      ]}
-                    >
-                      Current Month
-                    </Text>
-                  </View>
-                  <View style={styles.statDivider} />
-                  <View style={styles.statItem}>
-                    <Text
-                      style={[
-                        styles.statValue,
-                        { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
-                      ]}
-                    >
-                      {chartData.length > 0
-                        ? Math.round(
-                            chartData.reduce((sum, d) => sum + d.value, 0) /
-                              chartData.length
-                          )
-                        : 0}
-                      %
-                    </Text>
-                    <Text
-                      style={[
-                        styles.statLabel,
-                        { color: theme === 'dark' ? '#8E8E93' : '#666666' },
-                      ]}
-                    >
-                      Average
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Trend Analysis */}
-                {chartData.length >= 2 && (
-                  <View
-                    style={[
-                      styles.trendContainer,
-                      {
-                        backgroundColor:
-                          theme === 'dark' ? '#2C2C2E' : '#F8F9FA',
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.trendText,
-                        { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
-                      ]}
-                    >
-                      {getTrendAnalysis()}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            ) : (
-              <View style={styles.noDataContainer}>
-                <Text
-                  style={[
-                    styles.noDataText,
-                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
-                  ]}
-                >
-                  No data available for the selected period
+                  {trend()}
                 </Text>
-              </View>
+              </>
+            ) : (
+              <Text
+                style={{
+                  color: theme === 'dark' ? '#8E8E93' : '#666',
+                  textAlign: 'center',
+                  marginTop: 20,
+                }}
+              >
+                No data for this period
+              </Text>
             )}
           </ScrollView>
         </View>
       </View>
     </Modal>
   );
-
-  function getTrendAnalysis() {
-    if (chartData.length < 2) return '';
-
-    const recent = chartData.slice(-3).map(d => d.value);
-    const avgRecent = recent.reduce((a, b) => a + b, 0) / recent.length;
-    const older = chartData.slice(0, -3).map(d => d.value);
-    const avgOlder =
-      older.length > 0 ? older.reduce((a, b) => a + b, 0) / older.length : 0;
-
-    if (avgRecent > avgOlder + 10) {
-      return '📈 Great improvement! Your consistency is trending upward.';
-    } else if (avgRecent < avgOlder - 10) {
-      return '📉 Your consistency has declined recently. Time to refocus!';
-    } else {
-      return '➡️ Your consistency is stable. Keep up the steady progress!';
-    }
-  }
-};
+}
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    width: '95%',
+  overlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  modal: {
+    width: '90%',
     maxHeight: '90%',
     borderRadius: 12,
     overflow: 'hidden',
   },
-  modalHeader: {
+  header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 20,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: '#CCC',
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  closeButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  scrollView: {
-    maxHeight: '100%',
-  },
-  habitInfo: {
+  title: { fontSize: 20, fontWeight: 'bold' },
+  info: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    margin: 16,
+    padding: 12,
     borderRadius: 8,
+    marginBottom: 12,
   },
-  colorDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    marginRight: 12,
-  },
-  habitTextContainer: {
-    flex: 1,
-  },
-  habitName: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  habitDescription: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  timeRangeContainer: {
-    paddingHorizontal: 16,
-    marginBottom: 20,
-  },
-  timeRangeButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  dot: { width: 16, height: 16, borderRadius: 8, marginRight: 8 },
+  habitTitle: { fontSize: 16, fontWeight: '600' },
+  rangeBtn: {
+    padding: 8,
     borderRadius: 20,
     borderWidth: 1,
+    borderColor: '#CCC',
     marginRight: 8,
   },
-  timeRangeButtonActive: {
-    borderWidth: 0,
-  },
-  timeRangeText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  timeRangeTextActive: {
-    color: '#FFFFFF',
-  },
-  loadingContainer: {
-    height: 300,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  chartContainer: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-  },
-  chartTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    padding: 16,
-    marginTop: 20,
-    borderRadius: 8,
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  statLabel: {
-    fontSize: 12,
-    marginTop: 4,
-  },
-  statDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: '#E0E0E0',
-  },
-  trendContainer: {
-    padding: 16,
-    marginTop: 16,
-    borderRadius: 8,
-  },
-  trendText: {
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  noDataContainer: {
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  noDataText: {
-    fontSize: 16,
-  },
+  webFallback: { height: 200, justifyContent: 'center', alignItems: 'center' },
+  stats: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
+  statText: { fontSize: 24, fontWeight: 'bold' },
 });
-
-export default ProgressGraph;
