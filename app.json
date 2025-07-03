@@ -2,7 +2,7 @@
   "expo": {
     "name": "Habit Tracker: Pro",
     "slug": "HabitTracker",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon-v2.png",
     "userInterfaceStyle": "light",
@@ -14,8 +14,9 @@
     },
     "ios": {
       "bundleIdentifier": "com.ktforge.habittracker",
-      "buildNumber": "1",
+      "buildNumber": "3",
       "supportsTablet": false,
+      "jsEngine": "hermes",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSUserNotificationsUsageDescription": "HabitTracker sends daily reminders to help you maintain your habits and build lasting routines.",

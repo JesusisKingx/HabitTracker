@@ -1,34 +1,35 @@
 // MY Habit tracker IOS App with real IAP
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import 'react-native-gesture-handler';
-import React, { useState, useEffect } from 'react';
-import { APPLE_IAP_SHARED_SECRET } from '@env';
 
+import { ITUNES_SHARED_SECRET } from '@env';
 console.log(
   '🔐 IAP Shared Secret:',
-  APPLE_IAP_SHARED_SECRET ? 'Found' : 'Missing'
+  ITUNES_SHARED_SECRET ? 'Found' : 'Missing'
 );
 
 import {
-  StyleSheet,
-  View,
-  ScrollView,
-  SafeAreaView,
-  Text,
-  TouchableOpacity,
-  TextInput,
   Alert,
-  Modal,
-  FlatList,
-  Platform,
   Linking,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import IAP from '../../utils/iapHelper';
-import * as Notifications from 'expo-notifications';
-import * as Clipboard from 'expo-clipboard';
+
 import * as FileSystem from 'expo-file-system';
+import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
+import ProgressGraph from '../components/ProgressGraph';
+import Subscriptions from '../components/Subscriptions';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -89,6 +90,7 @@ const HABIT_DATA_KEY = '@HabitTracker:habitData';
 const HABITS_LIST_KEY = '@HabitTracker:habitsList';
 const SELECTED_HABIT_KEY = '@HabitTracker:selectedHabit';
 const PREMIUM_STATUS_KEY = '@HabitTracker:isPremium';
+const THEME_KEY = '@HabitTracker:theme';
 
 // In-App Purchase Product IDs
 const PRODUCT_IDS = {
@@ -96,8 +98,31 @@ const PRODUCT_IDS = {
   YEARLY: 'habittracker.premium.yearly',
 };
 
-// 🛠️ This is now handled in iapHelper.js validateReceipt method
-// Removed global fetch override as it's not needed
+// Theme constants
+const THEMES = {
+  light: {
+    background: '#F8F9FA',
+    card: '#FFFFFF',
+    text: '#333333',
+    subtext: '#666666',
+    border: '#E0E0E0',
+    cardBg: '#F8F9FA',
+    modalBg: '#FFFFFF',
+    inputBg: '#FFFFFF',
+    buttonBg: '#F5F5F5',
+  },
+  dark: {
+    background: '#000000', // Pure black background
+    card: '#1C1C1E', // Space grey card
+    text: '#FFFFFF',
+    subtext: '#8E8E93', // iOS grey
+    border: '#38383A', // Dark grey border
+    cardBg: '#1C1C1E',
+    modalBg: '#2C2C2E', // Slightly lighter modal
+    inputBg: '#1C1C1E',
+    buttonBg: '#2C2C2E',
+  },
+};
 
 // Available colors for habits
 const HABIT_COLORS = [
@@ -201,6 +226,7 @@ const getStreakQuote = (streak, trackingDays) => {
 // Edit Habit Modal Component
 const EditHabitModal = ({ visible, onClose, habit, onUpdateHabit }) => {
   const [habitName, setHabitName] = useState('');
+  const [habitDescription, setHabitDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState(HABIT_COLORS[0].value);
   const [selectedDays, setSelectedDays] = useState([0, 1, 2, 3, 4, 5, 6]);
 
@@ -208,6 +234,7 @@ const EditHabitModal = ({ visible, onClose, habit, onUpdateHabit }) => {
   useEffect(() => {
     if (habit) {
       setHabitName(habit.name);
+      setHabitDescription(habit.description || '');
       setSelectedColor(habit.color);
       setSelectedDays(habit.trackingDays || [0, 1, 2, 3, 4, 5, 6]);
     }
@@ -236,6 +263,7 @@ const EditHabitModal = ({ visible, onClose, habit, onUpdateHabit }) => {
     onUpdateHabit({
       ...habit,
       name: trimmedName,
+      description: habitDescription.trim(),
       color: selectedColor,
       trackingDays: selectedDays,
     });
@@ -260,7 +288,7 @@ const EditHabitModal = ({ visible, onClose, habit, onUpdateHabit }) => {
           </View>
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 20 }}
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
           >
             <View style={addHabitStyles.inputSection}>
               <Text style={addHabitStyles.label}>Habit Name</Text>
@@ -273,6 +301,22 @@ const EditHabitModal = ({ visible, onClose, habit, onUpdateHabit }) => {
               />
               <Text style={addHabitStyles.charCount}>
                 {habitName.length}/30 characters
+              </Text>
+            </View>
+
+            <View style={addHabitStyles.inputSection}>
+              <Text style={addHabitStyles.label}>Description (optional)</Text>
+              <TextInput
+                style={[addHabitStyles.input, addHabitStyles.descriptionInput]}
+                value={habitDescription}
+                onChangeText={setHabitDescription}
+                placeholder="e.g., 30 minutes of cardio or strength training"
+                maxLength={100}
+                multiline={true}
+                numberOfLines={2}
+              />
+              <Text style={addHabitStyles.charCount}>
+                {habitDescription.length}/100 characters
               </Text>
             </View>
 
@@ -354,8 +398,10 @@ const AddHabitModal = ({
   habitCount,
   isPremium,
   onUpgradePremium,
+  theme,
 }) => {
   const [habitName, setHabitName] = useState('');
+  const [habitDescription, setHabitDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState(HABIT_COLORS[0].value);
   const [selectedDays, setSelectedDays] = useState([0, 1, 2, 3, 4, 5, 6]);
 
@@ -402,12 +448,14 @@ const AddHabitModal = ({
     onAddHabit({
       id: Date.now().toString(),
       name: trimmedName,
+      description: habitDescription.trim(),
       color: selectedColor,
       createdAt: new Date().toISOString(),
       trackingDays: selectedDays,
     });
 
     setHabitName('');
+    setHabitDescription('');
     setSelectedColor(HABIT_COLORS[0].value);
     setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
     onClose();
@@ -418,9 +466,14 @@ const AddHabitModal = ({
       <View style={addHabitStyles.modalOverlay}>
         <View style={addHabitStyles.modalContent}>
           <View style={addHabitStyles.modalHeader}>
-            <Text style={addHabitStyles.modalTitle}>Add New Habit</Text>
+            <Text style={[addHabitStyles.modalTitle, { color: theme.text }]}>
+              Add New Habit
+            </Text>
             <TouchableOpacity
-              style={addHabitStyles.closeButton}
+              style={[
+                addHabitStyles.closeButton,
+                { backgroundColor: theme.buttonBg },
+              ]}
               onPress={onClose}
             >
               <Text style={addHabitStyles.closeButtonText}>✕</Text>
@@ -428,7 +481,7 @@ const AddHabitModal = ({
           </View>
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: 20 }}
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
           >
             {!canAddHabit && (
               <View style={addHabitStyles.premiumNotice}>
@@ -451,6 +504,23 @@ const AddHabitModal = ({
               />
               <Text style={addHabitStyles.charCount}>
                 {habitName.length}/30 characters
+              </Text>
+            </View>
+
+            <View style={addHabitStyles.inputSection}>
+              <Text style={addHabitStyles.label}>Description (optional)</Text>
+              <TextInput
+                style={[addHabitStyles.input, addHabitStyles.descriptionInput]}
+                value={habitDescription}
+                onChangeText={setHabitDescription}
+                placeholder="e.g., 30 minutes of cardio or strength training"
+                maxLength={100}
+                multiline={true}
+                numberOfLines={2}
+                editable={canAddHabit}
+              />
+              <Text style={addHabitStyles.charCount}>
+                {habitDescription.length}/100 characters
               </Text>
             </View>
 
@@ -544,6 +614,7 @@ const HabitSelector = ({
   onSelectHabit,
   onAddHabit,
   onDeleteHabit,
+  theme,
 }) => {
   const [longPressedHabitId, setLongPressedHabitId] = useState(null);
   const selectedHabit = habits.find(h => h.id === selectedHabitId) || habits[0];
@@ -565,25 +636,110 @@ const HabitSelector = ({
 
   if (habits.length === 1) {
     return (
-      <View style={habitSelectorStyles.singleHabitContainer}>
-        <View style={habitSelectorStyles.habitNameContainer}>
-          <View
-            style={[
-              habitSelectorStyles.colorDot,
-              { backgroundColor: selectedHabit.color },
-            ]}
-          />
-          <Text style={habitSelectorStyles.habitName}>
-            {selectedHabit.name}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={habitSelectorStyles.addButton}
-          onPress={onAddHabit}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={habitSelectorStyles.scrollContainer}
+        contentContainerStyle={habitSelectorStyles.scrollContent}
+      >
+        <View
+          style={{
+            flexDirection: 'row',
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            minWidth: '100%',
+          }}
         >
-          <Text style={habitSelectorStyles.addButtonText}>+</Text>
-        </TouchableOpacity>
-      </View>
+          {habits.map(habit => (
+            <View key={habit.id} style={habitSelectorStyles.habitTabContainer}>
+              <TouchableOpacity
+                style={[
+                  habitSelectorStyles.habitTab,
+                  selectedHabitId === habit.id && [
+                    habitSelectorStyles.selectedTab,
+                    { backgroundColor: theme.buttonBg },
+                  ],
+                  {
+                    borderBottomColor:
+                      selectedHabitId === habit.id
+                        ? habit.color
+                        : 'transparent',
+                  },
+                ]}
+                onPress={() => {
+                  onSelectHabit(habit.id);
+                  setLongPressedHabitId(null);
+                }}
+                onLongPress={() => setLongPressedHabitId(habit.id)}
+                delayLongPress={500}
+              >
+                <View
+                  style={[
+                    habitSelectorStyles.colorDot,
+                    {
+                      backgroundColor: habit.color,
+                      opacity: selectedHabitId === habit.id ? 1 : 0.4,
+                    },
+                  ]}
+                />
+                <View>
+                  <Text
+                    style={[
+                      habitSelectorStyles.tabText,
+                      {
+                        color:
+                          selectedHabitId === habit.id
+                            ? theme === THEMES.dark
+                              ? '#FFFFFF'
+                              : '#333333'
+                            : theme.subtext,
+                        width: 80,
+                        overflow: 'hidden',
+                        textAlign: 'center',
+                      },
+                      selectedHabitId === habit.id &&
+                        habitSelectorStyles.selectedTabText,
+                    ]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    adjustsFontSizeToFit={false}
+                  >
+                    {habit.name}
+                  </Text>
+
+                  {habit.description ? (
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color:
+                          selectedHabitId === habit.id
+                            ? theme === THEMES.dark
+                              ? '#E0E0E0'
+                              : '#666666'
+                            : '#999',
+                        marginTop: 2,
+                        width: 90,
+                        overflow: 'hidden',
+                      }}
+                      numberOfLines={1}
+                      ellipsizeMode="clip"
+                      adjustsFontSizeToFit={false}
+                    >
+                      {habit.description}
+                    </Text>
+                  ) : null}
+                </View>
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TouchableOpacity
+            style={habitSelectorStyles.addTabButton}
+            onPress={onAddHabit}
+          >
+            <Text style={habitSelectorStyles.addTabButtonText}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     );
   }
 
@@ -599,8 +755,14 @@ const HabitSelector = ({
           <TouchableOpacity
             style={[
               habitSelectorStyles.habitTab,
-              selectedHabitId === habit.id && habitSelectorStyles.selectedTab,
-              { borderBottomColor: habit.color },
+              selectedHabitId === habit.id && [
+                habitSelectorStyles.selectedTab,
+                { backgroundColor: theme.buttonBg },
+              ],
+              {
+                borderBottomColor:
+                  selectedHabitId === habit.id ? habit.color : 'transparent',
+              },
             ]}
             onPress={() => {
               onSelectHabit(habit.id);
@@ -612,18 +774,59 @@ const HabitSelector = ({
             <View
               style={[
                 habitSelectorStyles.colorDot,
-                { backgroundColor: habit.color },
+                {
+                  backgroundColor: habit.color,
+                  opacity: selectedHabitId === habit.id ? 1 : 0.4, // Dim inactive dots
+                },
               ]}
             />
-            <Text
-              style={[
-                habitSelectorStyles.tabText,
-                selectedHabitId === habit.id &&
-                  habitSelectorStyles.selectedTabText,
-              ]}
-            >
-              {habit.name}
-            </Text>
+            <View>
+              <Text
+                style={[
+                  habitSelectorStyles.tabText,
+                  {
+                    color:
+                      selectedHabitId === habit.id
+                        ? theme.background === '#000000'
+                          ? '#FFFFFF'
+                          : '#333333'
+                        : theme.subtext,
+                    width: 80,
+                    overflow: 'hidden',
+                    textAlign: 'center',
+                  },
+                  selectedHabitId === habit.id &&
+                    habitSelectorStyles.selectedTabText,
+                ]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                adjustsFontSizeToFit={false}
+              >
+                {habit.name}
+              </Text>
+
+              {habit.description ? (
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color:
+                      selectedHabitId === habit.id
+                        ? theme === THEMES.dark
+                          ? '#E0E0E0'
+                          : '#666666'
+                        : '#999',
+                    marginTop: 2,
+                    width: 90,
+                    overflow: 'hidden',
+                  }}
+                  numberOfLines={1}
+                  ellipsizeMode="clip"
+                  adjustsFontSizeToFit={false}
+                >
+                  {habit.description}
+                </Text>
+              ) : null}
+            </View>
           </TouchableOpacity>
           {habits.length > 1 && longPressedHabitId === habit.id && (
             <TouchableOpacity
@@ -665,6 +868,10 @@ const SettingsModal = ({
   habitsList,
   exportUserData,
   testIAPConnection,
+  isPremium,
+  theme,
+  onThemeChange,
+  setShowProgressGraph,
 }) => {
   const [tempHabitName, setTempHabitName] = useState(habitName);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -708,14 +915,36 @@ const SettingsModal = ({
   return (
     <Modal visible={visible} animationType="slide" transparent={true}>
       <View style={settingsStyles.modalOverlay}>
-        <View style={settingsStyles.modalContent}>
+        <View
+          style={[
+            settingsStyles.modalContent,
+            { backgroundColor: theme === 'dark' ? '#1C1C1E' : '#FFFFFF' },
+          ]}
+        >
           <View style={settingsStyles.modalHeader}>
-            <Text style={settingsStyles.modalTitle}>Settings</Text>
+            <Text
+              style={[
+                settingsStyles.modalTitle,
+                { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+              ]}
+            >
+              Settings
+            </Text>
             <TouchableOpacity
-              style={settingsStyles.closeButton}
+              style={[
+                settingsStyles.closeButton,
+                { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F5F5F5' },
+              ]}
               onPress={onClose}
             >
-              <Text style={settingsStyles.closeButtonText}>✕</Text>
+              <Text
+                style={[
+                  settingsStyles.closeButtonText,
+                  { color: theme === 'dark' ? '#FFFFFF' : '#666666' },
+                ]}
+              >
+                ✕
+              </Text>
             </TouchableOpacity>
           </View>
           <ScrollView
@@ -723,23 +952,60 @@ const SettingsModal = ({
             style={{ paddingBottom: 20 }}
           >
             <View style={settingsStyles.settingsSection}>
-              <Text style={settingsStyles.sectionTitle}>Current Habit</Text>
+              <Text
+                style={[
+                  settingsStyles.sectionTitle,
+                  { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                ]}
+              >
+                Current Habit
+              </Text>
               {isEditingName ? (
                 <View style={settingsStyles.editContainer}>
                   <TextInput
-                    style={settingsStyles.habitNameInput}
+                    style={[
+                      settingsStyles.habitNameInput,
+                      {
+                        backgroundColor:
+                          theme === 'dark' ? '#1C1C1E' : '#FFFFFF',
+                        borderColor: theme === 'dark' ? '#38383A' : '#4CAF50',
+                        color: theme === 'dark' ? '#FFFFFF' : '#333333',
+                      },
+                    ]}
                     value={tempHabitName}
                     onChangeText={setTempHabitName}
                     placeholder="Enter habit name"
+                    placeholderTextColor={
+                      theme === 'dark' ? '#8E8E93' : '#999999'
+                    }
                     maxLength={30}
                     autoFocus={true}
                     onSubmitEditing={saveHabitName}
                     returnKeyType="done"
                   />
-                  <Text style={settingsStyles.charCount}>
+                  <Text
+                    style={[
+                      settingsStyles.charCount,
+                      { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                    ]}
+                  >
                     {tempHabitName.length}/30 characters
                   </Text>
                   <View style={settingsStyles.editButtonsContainer}>
+                    <TouchableOpacity
+                      style={[
+                        settingsStyles.editButton,
+                        settingsStyles.cancelButton,
+                      ]}
+                      onPress={() => {
+                        onDeleteHabit?.(selectedHabit?.id);
+                        onClose();
+                      }}
+                    >
+                      <Text style={settingsStyles.cancelButtonText}>
+                        Delete Habit
+                      </Text>
+                    </TouchableOpacity>
                     <TouchableOpacity
                       style={[
                         settingsStyles.editButton,
@@ -764,13 +1030,28 @@ const SettingsModal = ({
                 </View>
               ) : (
                 <TouchableOpacity
-                  style={settingsStyles.settingItem}
+                  style={[
+                    settingsStyles.settingItem,
+                    {
+                      backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA',
+                    },
+                  ]}
                   onPress={() => setIsEditingName(true)}
                 >
-                  <Text style={settingsStyles.settingItemText}>
+                  <Text
+                    style={[
+                      settingsStyles.settingItemText,
+                      { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                    ]}
+                  >
                     {habitName}
                   </Text>
-                  <Text style={settingsStyles.settingItemSubtext}>
+                  <Text
+                    style={[
+                      settingsStyles.settingItemSubtext,
+                      { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                    ]}
+                  >
                     Tap to edit
                   </Text>
                 </TouchableOpacity>
@@ -778,32 +1059,86 @@ const SettingsModal = ({
             </View>
 
             <View style={settingsStyles.settingsSection}>
+              <Text style={settingsStyles.sectionTitle}>Appearance</Text>
+              <TouchableOpacity
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
+                onPress={() =>
+                  onThemeChange(theme === 'light' ? 'dark' : 'light')
+                }
+              >
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
+                  Theme: {theme === 'light' ? 'Light' : 'Dark'}
+                </Text>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
+                  Tap to switch to {theme === 'light' ? 'dark' : 'light'} mode
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={settingsStyles.settingsSection}>
               <Text style={settingsStyles.sectionTitle}>Premium</Text>
               <TouchableOpacity
-                style={settingsStyles.settingItem}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
                 onPress={() => {
                   onClose(); // Close settings first
                   onUpgradePremium();
                 }}
               >
-                <Text style={settingsStyles.settingItemText}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
                   Upgrade to Premium
                 </Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   Unlimited habits, themes, and more
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={settingsStyles.settingItem}
-                onPress={() => {
-                  onRestorePurchases();
-                }}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
+                onPress={onRestorePurchases}
               >
-                <Text style={settingsStyles.settingItemText}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
                   Restore Purchases
                 </Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   Already purchased? Restore your subscription
                 </Text>
               </TouchableOpacity>
@@ -812,7 +1147,56 @@ const SettingsModal = ({
             <View style={settingsStyles.settingsSection}>
               <Text style={settingsStyles.sectionTitle}>Data</Text>
               <TouchableOpacity
-                style={settingsStyles.settingItem}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
+                onPress={() => {
+                  if (isPremium) {
+                    onClose(); // close SettingsModal
+                    setTimeout(() => setShowProgressGraph(true), 250); // open graph after close
+                  } else {
+                    Alert.alert(
+                      'Premium Feature',
+                      'Progress graphs are available with Premium. Track your consistency trends and see detailed analytics!',
+                      [
+                        { text: 'Maybe Later', style: 'cancel' },
+                        {
+                          text: 'Upgrade to Premium',
+                          onPress: () => {
+                            onClose(); // Close settings modal
+                            onUpgradePremium(); // Open premium upgrade
+                          },
+                        },
+                      ]
+                    );
+                  }
+                }}
+              >
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
+                  📊 Progress Graph
+                </Text>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
+                  {isPremium
+                    ? 'View completion trends over time'
+                    : '🔒 Premium - View trends'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
                 onPress={() => {
                   Alert.alert(
                     'Clear This Month',
@@ -863,12 +1247,20 @@ const SettingsModal = ({
                 >
                   Clear This Month
                 </Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   Remove all checkmarks from current month
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={settingsStyles.settingItem}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
                 onPress={() => {
                   Alert.alert(
                     'Clear All Data',
@@ -898,13 +1290,23 @@ const SettingsModal = ({
                 >
                   Clear All Checkmarks
                 </Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   Remove all checkmarks from this habit
                 </Text>
               </TouchableOpacity>
               {habitsList.length > 1 && (
                 <TouchableOpacity
-                  style={settingsStyles.settingItem}
+                  style={[
+                    settingsStyles.settingItem,
+                    {
+                      backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA',
+                    },
+                  ]}
                   onPress={() => {
                     Alert.alert(
                       'Clear All Habits Data',
@@ -931,11 +1333,17 @@ const SettingsModal = ({
                     style={[
                       settingsStyles.settingItemText,
                       settingsStyles.dangerText,
+                      { color: '#F44336' }, // Keep red color for danger items
                     ]}
                   >
                     Clear All Habits
                   </Text>
-                  <Text style={settingsStyles.settingItemSubtext}>
+                  <Text
+                    style={[
+                      settingsStyles.settingItemSubtext,
+                      { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                    ]}
+                  >
                     Remove all checkmarks from all habits
                   </Text>
                 </TouchableOpacity>
@@ -945,7 +1353,10 @@ const SettingsModal = ({
             <View style={settingsStyles.settingsSection}>
               <Text style={settingsStyles.sectionTitle}>Notifications</Text>
               <TouchableOpacity
-                style={settingsStyles.settingItem}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
                 onPress={async () => {
                   const hasPermission = await requestNotificationPermissions();
                   if (hasPermission) {
@@ -1031,16 +1442,29 @@ const SettingsModal = ({
                   }
                 }}
               >
-                <Text style={settingsStyles.settingItemText}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
                   Daily Reminders
                 </Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   Get reminded to complete your habits
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={settingsStyles.settingItem}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
                 onPress={async () => {
                   await Notifications.cancelAllScheduledNotificationsAsync();
                   Alert.alert(
@@ -1049,10 +1473,20 @@ const SettingsModal = ({
                   );
                 }}
               >
-                <Text style={settingsStyles.settingItemText}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
                   Turn Off Reminders
                 </Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   Stop receiving daily notifications
                 </Text>
               </TouchableOpacity>
@@ -1062,13 +1496,26 @@ const SettingsModal = ({
               <Text style={settingsStyles.sectionTitle}>Data Export</Text>
 
               <TouchableOpacity
-                style={settingsStyles.settingItem}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
                 onPress={exportUserData}
               >
-                <Text style={settingsStyles.settingItemText}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
                   Export My Data
                 </Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   Download all your habit data
                 </Text>
               </TouchableOpacity>
@@ -1079,36 +1526,67 @@ const SettingsModal = ({
 
               {/* Terms of Use */}
               <TouchableOpacity
-                style={settingsStyles.settingItem}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
                 onPress={() =>
                   Linking.openURL('https://ktforge.dev/habittracker-eula.html')
                 }
               >
-                <Text style={settingsStyles.settingItemText}>Terms of Use</Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
+                  Terms of Use
+                </Text>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   View our license agreement
                 </Text>
               </TouchableOpacity>
 
               {/* Privacy Policy */}
               <TouchableOpacity
-                style={settingsStyles.settingItem}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
                 onPress={() =>
                   Linking.openURL(
                     'https://ktforge.dev/habittracker-privacy.html'
                   )
                 }
               >
-                <Text style={settingsStyles.settingItemText}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
                   Privacy Policy
                 </Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   View our privacy policy
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={settingsStyles.settingItem}
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
                 onPress={async () => {
                   try {
                     const supported = await Linking.canOpenURL(
@@ -1142,10 +1620,20 @@ const SettingsModal = ({
                   }
                 }}
               >
-                <Text style={settingsStyles.settingItemText}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
                   Contact Support
                 </Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   Get help with the app
                 </Text>
               </TouchableOpacity>
@@ -1155,9 +1643,26 @@ const SettingsModal = ({
               style={[settingsStyles.settingsSection, { marginBottom: 40 }]}
             >
               <Text style={settingsStyles.sectionTitle}>About</Text>
-              <View style={settingsStyles.settingItem}>
-                <Text style={settingsStyles.settingItemText}>HabitTracker</Text>
-                <Text style={settingsStyles.settingItemSubtext}>
+              <View
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
+              >
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
+                  HabitTracker
+                </Text>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
                   Version 1.0 - Multi-Habit Edition
                 </Text>
               </View>
@@ -1177,6 +1682,7 @@ const CalendarGrid = ({
   onSettingsPress,
   onTodayPress,
   isPremium,
+  theme,
 }) => {
   // State to track which month we're currently viewing
   const [viewDate, setViewDate] = useState(new Date()); // Starts with current month
@@ -1384,37 +1890,38 @@ const CalendarGrid = ({
     const isCurrentMonth =
       viewMonth === today.getMonth() && viewYear === today.getFullYear();
 
-    // Get total days in the month being viewed
+    const selectedDays = selectedHabit.trackingDays || [0, 1, 2, 3, 4, 5, 6];
+
     const totalDaysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
-    // For current month, only count days up to today
-    // For past months, count all days
-    // For future months, count no days (shouldn't happen but safety)
-    let daysToCount;
-    if (isCurrentMonth) {
-      daysToCount = today.getDate(); // Only count up to today
-    } else if (viewDate < today) {
-      daysToCount = totalDaysInMonth; // Past month - count all days
-    } else {
-      daysToCount = 0; // Future month - count no days
-    }
-
-    // Count completed days in the range we're considering
+    let totalTrackingDays = 0;
     let completedDays = 0;
-    for (let day = 1; day <= daysToCount; day++) {
+
+    for (let day = 1; day <= totalDaysInMonth; day++) {
       const date = new Date(viewYear, viewMonth, day);
       const dateString = getLocalDateString(date);
+      const isFuture = date > today && isCurrentMonth;
+
+      if (isFuture) continue;
+
+      const dayOfWeek = date.getDay();
+      if (!selectedDays.includes(dayOfWeek)) continue;
+
+      totalTrackingDays++;
+
       if (habitData[dateString] === 'completed') {
         completedDays++;
       }
     }
 
     const percentage =
-      daysToCount > 0 ? Math.round((completedDays / daysToCount) * 100) : 0;
+      totalTrackingDays > 0
+        ? Math.round((completedDays / totalTrackingDays) * 100)
+        : 0;
 
     return {
       completedDays,
-      totalDays: daysToCount,
+      totalDays: totalTrackingDays,
       totalDaysInMonth,
       percentage,
       isCurrentMonth,
@@ -1442,11 +1949,19 @@ const CalendarGrid = ({
     viewDate.getFullYear() === today.getFullYear();
 
   return (
-    <View style={calendarStyles.container}>
+    <View style={[calendarStyles.container, { backgroundColor: theme.card }]}>
       {/* Monthly Progress Stats - Premium Feature */}
       {isPremium ? (
-        <View style={calendarStyles.progressSection}>
-          <Text style={calendarStyles.progressTitle}>
+        <View
+          style={[
+            calendarStyles.progressSection,
+            {
+              backgroundColor: theme.buttonBg,
+              borderColor: theme.border,
+            },
+          ]}
+        >
+          <Text style={[calendarStyles.progressTitle, { color: theme.text }]}>
             {monthlyProgress.completedDays} of {monthlyProgress.totalDays} days
             completed
             {monthlyProgress.isCurrentMonth ? ' this month' : ''}
@@ -1462,7 +1977,14 @@ const CalendarGrid = ({
 
           {/* Progress Bar */}
           <View style={calendarStyles.progressBarContainer}>
-            <View style={calendarStyles.progressBarBackground}>
+            <View
+              style={[
+                calendarStyles.progressBarBackground,
+                {
+                  backgroundColor: theme.background,
+                },
+              ]}
+            >
               <View
                 style={[
                   calendarStyles.progressBarFill,
@@ -1476,7 +1998,9 @@ const CalendarGrid = ({
           </View>
 
           {/* Progress Text */}
-          <Text style={calendarStyles.progressSubtext}>
+          <Text
+            style={[calendarStyles.progressSubtext, { color: theme.subtext }]}
+          >
             {monthlyProgress.percentage >= 80
               ? '🔥 Amazing progress!'
               : monthlyProgress.percentage >= 60
@@ -1544,18 +2068,38 @@ const CalendarGrid = ({
       )}
 
       {/* Motivational Quote */}
-      <View style={calendarStyles.motivationSection}>
-        <Text style={calendarStyles.motivationQuote}>
+      <View
+        style={[
+          calendarStyles.motivationSection,
+          {
+            backgroundColor: theme.buttonBg,
+            borderColor: theme.border,
+          },
+        ]}
+      >
+        <Text style={[calendarStyles.motivationQuote, { color: theme.text }]}>
           {getStreakQuote(currentStreak, selectedHabit?.trackingDays)}
         </Text>
       </View>
 
       {/* Streak Display */}
       <View style={calendarStyles.streakContainer}>
-        <View style={calendarStyles.streakCard}>
+        <View
+          style={[
+            calendarStyles.streakCard,
+            {
+              backgroundColor: theme.buttonBg,
+              borderColor: theme.border,
+            },
+          ]}
+        >
           <Text style={calendarStyles.streakNumber}>{currentStreak}</Text>
-          <Text style={calendarStyles.streakLabel}>Current Streak</Text>
-          <Text style={calendarStyles.streakSubtext}>
+          <Text style={[calendarStyles.streakLabel, { color: theme.text }]}>
+            Current Streak
+          </Text>
+          <Text
+            style={[calendarStyles.streakSubtext, { color: theme.subtext }]}
+          >
             {currentStreak === 0
               ? 'Start today!'
               : currentStreak === 1
@@ -1564,7 +2108,15 @@ const CalendarGrid = ({
           </Text>
         </View>
 
-        <View style={calendarStyles.streakCard}>
+        <View
+          style={[
+            calendarStyles.streakCard,
+            {
+              backgroundColor: theme.buttonBg,
+              borderColor: theme.border,
+            },
+          ]}
+        >
           <Text
             style={[
               calendarStyles.streakNumber,
@@ -1573,8 +2125,12 @@ const CalendarGrid = ({
           >
             {longestStreak}
           </Text>
-          <Text style={calendarStyles.streakLabel}>Best Streak</Text>
-          <Text style={calendarStyles.streakSubtext}>
+          <Text style={[calendarStyles.streakLabel, { color: theme.text }]}>
+            Best Streak
+          </Text>
+          <Text
+            style={[calendarStyles.streakSubtext, { color: theme.subtext }]}
+          >
             {longestStreak === 0
               ? 'No streak yet'
               : longestStreak === 1
@@ -1587,7 +2143,10 @@ const CalendarGrid = ({
       {/* Month Navigation */}
       <View style={calendarStyles.monthNavigation}>
         <TouchableOpacity
-          style={calendarStyles.navButton}
+          style={[
+            calendarStyles.navButton,
+            { backgroundColor: theme.buttonBg },
+          ]}
           onPress={goToPreviousMonth}
         >
           <Text style={calendarStyles.navButtonText}>‹</Text>
@@ -1600,20 +2159,24 @@ const CalendarGrid = ({
           <Text
             style={[
               calendarStyles.currentMonth,
+              { color: theme.text },
               !isCurrentMonth && calendarStyles.pastMonth,
             ]}
           >
             {currentMonth}
           </Text>
           {!isCurrentMonth && (
-            <Text style={calendarStyles.todayHint}>
+            <Text style={[calendarStyles.todayHint, { color: theme.subtext }]}>
               Tap to go to current month
             </Text>
           )}
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={calendarStyles.navButton}
+          style={[
+            calendarStyles.navButton,
+            { backgroundColor: theme.buttonBg },
+          ]}
           onPress={goToNextMonth}
         >
           <Text style={calendarStyles.navButtonText}>›</Text>
@@ -1635,6 +2198,7 @@ const CalendarGrid = ({
               key={dayData.date}
               style={[
                 calendarStyles.dayContainer,
+                { backgroundColor: theme.buttonBg },
                 dayData.isToday && calendarStyles.todayContainer,
                 !isTrackingDay && calendarStyles.nonTrackingDay,
               ]}
@@ -1645,6 +2209,7 @@ const CalendarGrid = ({
               <Text
                 style={[
                   calendarStyles.dayName,
+                  { color: theme.subtext },
                   dayData.isToday && calendarStyles.todayText,
                   dayData.isFuture && calendarStyles.futureText,
                 ]}
@@ -1656,6 +2221,7 @@ const CalendarGrid = ({
               <Text
                 style={[
                   calendarStyles.dayNumber,
+                  { color: theme.text },
                   dayData.isToday && calendarStyles.todayText,
                   dayData.isFuture && calendarStyles.futureText,
                 ]}
@@ -1704,7 +2270,9 @@ const CalendarGrid = ({
           >
             <Text style={calendarStyles.legendSymbol}>✓</Text>
           </View>
-          <Text style={calendarStyles.legendText}>Completed</Text>
+          <Text style={[calendarStyles.legendText, { color: theme.subtext }]}>
+            Completed
+          </Text>
         </View>
         <View style={calendarStyles.legendItem}>
           <View
@@ -1721,7 +2289,9 @@ const CalendarGrid = ({
               ○
             </Text>
           </View>
-          <Text style={calendarStyles.legendText}>Not marked</Text>
+          <Text style={[calendarStyles.legendText, { color: theme.subtext }]}>
+            Not marked
+          </Text>
         </View>
         <View style={calendarStyles.legendItem}>
           <View
@@ -1734,7 +2304,9 @@ const CalendarGrid = ({
               •
             </Text>
           </View>
-          <Text style={calendarStyles.legendText}>Future</Text>
+          <Text style={[calendarStyles.legendText, { color: theme.subtext }]}>
+            Future
+          </Text>
         </View>
       </View>
     </View>
@@ -1743,15 +2315,26 @@ const CalendarGrid = ({
 
 // Main component
 export default function HomeScreen() {
+  const scrollRef = useRef(null);
   // Initialize with empty data - we'll load from storage
   const [habitData, setHabitData] = useState({}); // { habitId: { date: status } }
-  const [habitsList, setHabitsList] = useState([]); // Array of habit objects
+  const [habitsList, setHabitsList] = useState([
+    { id: '1', name: 'Gym', description: 'Workout for 30 min' },
+    { id: '2', name: 'Read', description: 'Read 10 pages' },
+    { id: '3', name: 'Meditate', description: '10 minutes mindfulness' },
+  ]);
+  // Array of habit objects
   const [selectedHabitId, setSelectedHabitId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddHabit, setShowAddHabit] = useState(false);
   const [showEditHabit, setShowEditHabit] = useState(false);
+  const [showSubscriptions, setShowSubscriptions] = useState(false);
+  const [showProgressGraph, setShowProgressGraph] = useState(false);
   const [isPremium, setIsPremium] = useState(false); // Start as false, load from storage
+  const [theme, setTheme] = useState('light'); // Theme state
+
+  const statusBarStyle = theme === 'dark' ? 'light' : 'dark';
 
   const selectedHabit =
     habitsList.find(h => h.id === selectedHabitId) || habitsList[0];
@@ -1764,7 +2347,11 @@ export default function HomeScreen() {
     try {
       const jsonData = JSON.stringify(data);
       await AsyncStorage.setItem(HABIT_DATA_KEY, jsonData);
-      console.log('Habit data saved successfully');
+      console.log(
+        'Habit data saved successfully:',
+        Object.keys(data).length,
+        'habits'
+      );
     } catch (error) {
       console.error('Error saving habit data:', error);
     }
@@ -1801,21 +2388,79 @@ export default function HomeScreen() {
     }
   };
 
+  // Debug function to check storage
+  const debugCheckStorage = async () => {
+    try {
+      const [habitDataJson, habitsListJson] = await Promise.all([
+        AsyncStorage.getItem(HABIT_DATA_KEY),
+        AsyncStorage.getItem(HABITS_LIST_KEY),
+      ]);
+
+      const habitData = habitDataJson ? JSON.parse(habitDataJson) : {};
+      const habitsList = habitsListJson ? JSON.parse(habitsListJson) : [];
+
+      console.log('=== STORAGE DEBUG ===');
+      console.log('Habits in list:', habitsList.length);
+      console.log(
+        'Habit IDs in list:',
+        habitsList.map(h => h.id)
+      );
+      console.log('Habits in data:', Object.keys(habitData).length);
+      console.log('Habit IDs in data:', Object.keys(habitData));
+      console.log('===================');
+
+      // Check for orphaned data
+      const orphanedIds = Object.keys(habitData).filter(
+        id => !habitsList.find(h => h.id === id)
+      );
+      if (orphanedIds.length > 0) {
+        console.log('⚠️ ORPHANED HABIT DATA FOUND:', orphanedIds);
+      }
+    } catch (error) {
+      console.error('Debug check error:', error);
+    }
+  };
+
   // Load all data from AsyncStorage
   const loadAllData = async () => {
     try {
       // Load all data in parallel
-      const [habitDataJson, habitsListJson, selectedHabitId, premiumStatus] =
-        await Promise.all([
-          AsyncStorage.getItem(HABIT_DATA_KEY),
-          AsyncStorage.getItem(HABITS_LIST_KEY),
-          AsyncStorage.getItem(SELECTED_HABIT_KEY),
-          AsyncStorage.getItem(PREMIUM_STATUS_KEY),
-        ]);
+      const [
+        habitDataJson,
+        habitsListJson,
+        selectedHabitId,
+        premiumStatus,
+        savedTheme,
+      ] = await Promise.all([
+        AsyncStorage.getItem(HABIT_DATA_KEY),
+        AsyncStorage.getItem(HABITS_LIST_KEY),
+        AsyncStorage.getItem(SELECTED_HABIT_KEY),
+        AsyncStorage.getItem(PREMIUM_STATUS_KEY),
+        AsyncStorage.getItem(THEME_KEY),
+      ]);
+
+      const parsedHabitData = habitDataJson ? JSON.parse(habitDataJson) : {};
+      const parsedHabitsList = habitsListJson ? JSON.parse(habitsListJson) : [];
+
+      // 🔥 Automatically delete orphaned habits (data with no habit in list)
+      const validHabitIds = parsedHabitsList.map(h => h.id);
+      const cleanedHabitData = Object.fromEntries(
+        Object.entries(parsedHabitData).filter(([id]) =>
+          validHabitIds.includes(id)
+        )
+      );
+
+      setHabitData(cleanedHabitData);
+      setHabitsList(parsedHabitsList);
 
       // Set premium status
       if (premiumStatus === 'true') {
         setIsPremium(true);
+      }
+
+      // Set theme
+      if (savedTheme === 'dark' || savedTheme === 'light') {
+        setTheme(savedTheme);
       }
 
       // Parse habits list
@@ -1847,6 +2492,9 @@ export default function HomeScreen() {
       if (habits.length === 0) {
         createFirstHabit();
       }
+
+      // Debug check storage
+      await debugCheckStorage();
     } catch (error) {
       console.error('Error loading data:', error);
       createFirstHabit();
@@ -1855,490 +2503,42 @@ export default function HomeScreen() {
     }
   };
 
-  // Improved purchase history check
-  const checkAndRestoreExistingPurchases = async () => {
-    try {
-      const history = await IAP.getPurchaseHistoryAsync();
-      console.log(
-        '🔍 [IAP DEBUG] Purchase history response:',
-        history.responseCode
-      );
-
-      if (history.responseCode === IAP.IAPResponseCode.OK && history.results) {
-        console.log('🔍 [IAP DEBUG] Purchase history:', history.results);
-
-        // Check if user has active subscription
-        const hasActiveSubscription = history.results.some(purchase => {
-          const isValidProduct =
-            purchase.productId === PRODUCT_IDS.MONTHLY ||
-            purchase.productId === PRODUCT_IDS.YEARLY;
-          const isAcknowledged = purchase.acknowledged;
-
-          console.log('🔍 [IAP DEBUG] Checking purchase:', {
-            productId: purchase.productId,
-            acknowledged: isAcknowledged,
-            isValidProduct,
-          });
-
-          return isValidProduct && isAcknowledged;
-        });
-
-        if (hasActiveSubscription) {
-          console.log(
-            '✅ [IAP DEBUG] Found active subscription, enabling premium'
-          );
-          setIsPremium(true);
-          await savePremiumStatus(true);
-        }
-      }
-    } catch (error) {
-      console.log('❌ [IAP DEBUG] Error checking purchase history:', error);
-    }
-  };
-
-  // Initialize in-app purchases (real implementation)
-  const initializePurchases = async () => {
-    try {
-      if (Platform.OS !== 'ios') {
-        console.log('IAP only supported on iOS currently');
-        return;
-      }
-
-      console.log('🔍 [IAP DEBUG] Initializing IAP...');
-
-      const { responseCode, results } = await IAP.connectAsync();
-      console.log('🔍 [IAP DEBUG] Connect response:', responseCode);
-
-      if (responseCode === IAP.IAPResponseCode.OK) {
-        console.log('✅ [IAP DEBUG] Connected to App Store successfully');
-
-        // Set purchase listener with comprehensive logging
-        IAP.setPurchaseListener(({ responseCode, results, errorCode }) => {
-          console.log('🔍 [IAP DEBUG] Purchase listener triggered:', {
-            responseCode,
-            errorCode,
-            resultsCount: results?.length || 0,
-          });
-
-          if (
-            responseCode === IAP.IAPResponseCode.OK &&
-            results &&
-            results.length > 0
-          ) {
-            console.log('✅ [IAP DEBUG] Processing purchase results...');
-            results.forEach((purchase, index) => {
-              console.log(`🔍 [IAP DEBUG] Purchase ${index + 1}:`, {
-                productId: purchase.productId,
-                acknowledged: purchase.acknowledged,
-                transactionId: purchase.transactionId,
-              });
-
-              if (!purchase.acknowledged) {
-                handleSuccessfulPurchase(purchase);
-              } else {
-                console.log(
-                  'ℹ️ [IAP DEBUG] Purchase already acknowledged, skipping'
-                );
-              }
-            });
-          } else if (responseCode === IAP.IAPResponseCode.USER_CANCELED) {
-            console.log('ℹ️ [IAP DEBUG] Purchase listener: User cancelled');
-          } else if (responseCode === IAP.IAPResponseCode.ERROR) {
-            console.log('❌ [IAP DEBUG] Purchase listener error:', errorCode);
-          } else {
-            console.log(
-              '❓ [IAP DEBUG] Purchase listener unknown response:',
-              responseCode
-            );
-          }
-        });
-
-        // Check purchase history
-        await checkAndRestoreExistingPurchases();
-      } else {
-        console.log(
-          '❌ [IAP DEBUG] Failed to connect to App Store:',
-          responseCode
-        );
-      }
-    } catch (error) {
-      console.log('💥 [IAP DEBUG] Error initializing IAP:', error);
-    }
-  };
-
-  // Handle successful purchase
-  const handleSuccessfulPurchase = async purchase => {
-    try {
-      console.log('✅ [IAP DEBUG] Handling successful purchase:', {
-        productId: purchase.productId,
-        transactionId: purchase.transactionId,
-        acknowledged: purchase.acknowledged,
-      });
-
-      // Validate it's one of our products
-      if (
-        purchase.productId !== PRODUCT_IDS.MONTHLY &&
-        purchase.productId !== PRODUCT_IDS.YEARLY
-      ) {
-        console.log(
-          '❌ [IAP DEBUG] Unknown product ID in purchase:',
-          purchase.productId
-        );
-        return;
-      }
-
-      // Check if already acknowledged
-      if (purchase.acknowledged) {
-        console.log('ℹ️ [IAP DEBUG] Purchase already acknowledged');
-        setIsPremium(true);
-        await savePremiumStatus(true);
-        return;
-      }
-
-      console.log('🔍 [IAP DEBUG] Validating receipt...');
-
-      // Validate receipt with sandbox fallback
-      if (purchase.transactionReceipt) {
-        console.log('🔍 [IAP DEBUG] Starting receipt validation...');
-        const validation = await IAP.validateReceipt(
-          purchase.transactionReceipt
-        );
-
-        if (!validation || !validation.success) {
-          console.log('❌ [IAP DEBUG] Receipt validation failed:', validation);
-
-          // Check if it's a specific known error
-          let errorMessage =
-            'Could not verify your purchase. Please try again.';
-          if (validation && validation.status) {
-            switch (validation.status) {
-              case 21002:
-                errorMessage = 'Invalid receipt data. Please try again.';
-                break;
-              case 21003:
-                errorMessage = 'Authentication error. Please try again.';
-                break;
-              case 21004:
-                errorMessage = 'Invalid shared secret. Please contact support.';
-                break;
-              case 21005:
-                errorMessage =
-                  'Receipt server is unavailable. Please try again later.';
-                break;
-              case 21008:
-                errorMessage = 'This receipt has already been used.';
-                break;
-              default:
-                errorMessage = `Validation failed (Error ${validation.status}). Please contact support.`;
-            }
-          }
-
-          Alert.alert('Purchase Error', errorMessage);
-
-          // Still finish the transaction to prevent it from being stuck
-          await IAP.finish(purchase);
-          return;
-        }
-
-        console.log('✅ [IAP DEBUG] Receipt validated successfully');
-        console.log(
-          '🔍 [IAP DEBUG] Receipt environment:',
-          validation.data?.environment || 'Unknown'
-        );
-      }
-
-      console.log('🔍 [IAP DEBUG] Finishing transaction...');
-
-      // Finish the transaction
-      await IAP.finish(purchase);
-      console.log('✅ [IAP DEBUG] Transaction finished successfully');
-
-      // Enable premium features
-      setIsPremium(true);
-      await savePremiumStatus(true);
-
-      // Show success message
-      Alert.alert(
-        'Welcome to Premium! 🎉',
-        'You now have access to unlimited habits and all premium features.',
-        [{ text: 'Awesome!' }]
-      );
-    } catch (error) {
-      console.error('💥 [IAP DEBUG] Error handling purchase:', error);
-      Alert.alert(
-        'Purchase Error',
-        'There was an issue processing your purchase. Please try again or contact support.'
-      );
-    }
-    try {
-      console.log('✅ [IAP DEBUG] Handling successful purchase:', {
-        productId: purchase.productId,
-        transactionId: purchase.transactionId,
-        acknowledged: purchase.acknowledged,
-      });
-
-      // Validate it's one of our products
-      if (
-        purchase.productId !== PRODUCT_IDS.MONTHLY &&
-        purchase.productId !== PRODUCT_IDS.YEARLY
-      ) {
-        console.log(
-          '❌ [IAP DEBUG] Unknown product ID in purchase:',
-          purchase.productId
-        );
-        return;
-      }
-
-      // Check if already acknowledged
-      if (purchase.acknowledged) {
-        console.log('ℹ️ [IAP DEBUG] Purchase already acknowledged');
-        // Still enable premium in case it wasn't saved properly
-        setIsPremium(true);
-        await savePremiumStatus(true);
-        return;
-      }
-
-      console.log('🔍 [IAP DEBUG] Acknowledging purchase...');
-
-      // Acknowledge the purchase (finish the transaction)
-      const finishResult = await IAP.finishTransactionAsync(purchase, true);
-      console.log(
-        '🔍 [IAP DEBUG] Finish transaction result:',
-        finishResult.responseCode
-      );
-
-      if (finishResult.responseCode === IAP.IAPResponseCode.OK) {
-        console.log('✅ [IAP DEBUG] Purchase acknowledged successfully');
-
-        // Enable premium features
-        setIsPremium(true);
-        await savePremiumStatus(true);
-
-        // Show success message
-        Alert.alert(
-          'Welcome to Premium! 🎉',
-          'You now have access to unlimited habits and all premium features.',
-          [{ text: 'Awesome!' }]
-        );
-      } else {
-        console.log(
-          '❌ [IAP DEBUG] Failed to acknowledge purchase:',
-          finishResult.responseCode
-        );
-        Alert.alert(
-          'Purchase Successful',
-          "Your purchase was successful but there was an issue activating premium features. Please use 'Restore Purchases' in settings or restart the app."
-        );
-      }
-
-      if (responseCode === IAP.IAPResponseCode.OK) {
-        // Unlock premium features
-        setIsPremium(true);
-        await savePremiumStatus(true);
-
-        Alert.alert(
-          'Welcome to Premium! 🎉',
-          'You now have access to unlimited habits and all premium features.',
-          [{ text: 'Awesome!' }]
-        );
-      }
-    } catch (error) {
-      console.error('Error acknowledging purchase:', error);
-    }
-  };
-
-  // Handle subscription purchase (real implementation)
-  const purchaseSubscription = async productId => {
-    try {
-      console.log('🔍 [IAP DEBUG] Starting purchase for:', productId);
-
-      // Validate product ID first
-      if (
-        productId !== PRODUCT_IDS.MONTHLY &&
-        productId !== PRODUCT_IDS.YEARLY
-      ) {
-        console.log('❌ [IAP DEBUG] Invalid product ID:', productId);
-        Alert.alert('Error', 'Invalid subscription option selected.');
-        return;
-      }
-
-      // Get product info to verify it exists
-      console.log('🔍 [IAP DEBUG] Getting product info...');
-      const { responseCode: productResponseCode, results: products } =
-        await IAP.getProductsAsync([productId]);
-
-      console.log('🔍 [IAP DEBUG] Product fetch response:', {
-        responseCode: productResponseCode,
-        products: products?.map(p => ({
-          id: p.productId,
-          price: p.price,
-          title: p.title,
-        })),
-      });
-
-      if (
-        productResponseCode !== IAP.IAPResponseCode.OK ||
-        !products ||
-        products.length === 0
-      ) {
-        console.log('❌ [IAP DEBUG] Failed to load product info');
-        Alert.alert(
-          'Service Unavailable',
-          'Could not load subscription information. Please check your internet connection and try again.'
-        );
-        return;
-      }
-
-      const product = products.find(p => p.productId === productId);
-      if (!product) {
-        console.log('❌ [IAP DEBUG] Product not found in results');
-        Alert.alert('Error', 'Subscription option not available.');
-        return;
-      }
-
-      console.log(
-        '✅ [IAP DEBUG] Product found:',
-        product.title,
-        product.price
-      );
-
-      // Now attempt the purchase
-      console.log('🔍 [IAP DEBUG] Initiating purchase...');
-      const purchaseResult = await IAP.purchaseItemAsync(productId);
-
-      console.log('🔍 [IAP DEBUG] Purchase result:', {
-        responseCode: purchaseResult.responseCode,
-        errorCode: purchaseResult.errorCode,
-        results: purchaseResult.results?.length || 0,
-      });
-
-      // Handle the response more specifically
-      switch (purchaseResult.responseCode) {
-        case IAP.IAPResponseCode.OK:
-          console.log(
-            '✅ [IAP DEBUG] Purchase successful, listener should handle it'
-          );
-          break;
-
-        case IAP.IAPResponseCode.USER_CANCELED:
-          console.log('ℹ️ [IAP DEBUG] User cancelled purchase');
-          break;
-
-        case IAP.IAPResponseCode.ERROR:
-          console.log(
-            '❌ [IAP DEBUG] Purchase error:',
-            purchaseResult.errorCode
-          );
-
-          let errorMessage = 'Unable to complete your purchase.';
-
-          if (purchaseResult.errorCode) {
-            switch (purchaseResult.errorCode) {
-              case 'E_NETWORK_ERROR':
-                errorMessage =
-                  'Network error. Please check your internet connection and try again.';
-                break;
-              case 'E_SERVICE_ERROR':
-                errorMessage =
-                  'App Store service is temporarily unavailable. Please try again later.';
-                break;
-              case 'E_USER_ERROR':
-                errorMessage =
-                  'There was an issue with your Apple ID or payment method. Please check your App Store settings.';
-                break;
-              case 'E_DEVELOPER_ERROR':
-                errorMessage =
-                  'App configuration error. Please contact support.';
-                break;
-              case 'E_BILLING_UNAVAILABLE':
-                errorMessage =
-                  'In-app purchases are not available on this device.';
-                break;
-              case 'E_ITEM_UNAVAILABLE':
-                errorMessage = 'This subscription is temporarily unavailable.';
-                break;
-              default:
-                errorMessage = `Purchase failed (${purchaseResult.errorCode}). Please try again.`;
-            }
-          }
-
-          Alert.alert('Purchase Failed', errorMessage);
-          break;
-
-        case IAP.IAPResponseCode.DEFERRED:
-          console.log('⏳ [IAP DEBUG] Purchase deferred (pending approval)');
-          Alert.alert(
-            'Purchase Pending',
-            "Your purchase is pending approval. You'll receive premium features once approved."
-          );
-          break;
-
-        default:
-          console.log(
-            '❓ [IAP DEBUG] Unknown purchase response:',
-            purchaseResult.responseCode
-          );
-          Alert.alert(
-            'Purchase Issue',
-            'An unexpected error occurred. Please try again or contact support if the problem persists.'
-          );
-      }
-    } catch (error) {
-      console.error('💥 [IAP DEBUG] Purchase exception:', error);
-
-      let errorMessage = 'Could not complete purchase. Please try again.';
-
-      if (
-        error.message?.includes('network') ||
-        error.message?.includes('connection')
-      ) {
-        errorMessage =
-          'Network error. Please check your internet connection and try again.';
-      } else if (
-        error.message?.includes('not available') ||
-        error.message?.includes('disabled')
-      ) {
-        errorMessage =
-          'In-app purchases are not available. Please check your device settings.';
-      }
-
-      Alert.alert('Purchase Error', errorMessage);
-    }
-  };
-
-  // Restore purchases function (required by Apple)
+  // Simple restore purchases
   const restorePurchases = async () => {
     try {
-      const history = await IAP.getPurchaseHistoryAsync();
-
-      if (history.responseCode === IAP.IAPResponseCode.OK) {
-        const hasActiveSubscription = history.results?.some(
-          purchase =>
-            (purchase.productId === PRODUCT_IDS.MONTHLY ||
-              purchase.productId === PRODUCT_IDS.YEARLY) &&
-            purchase.acknowledged
-        );
-
-        if (hasActiveSubscription) {
-          setIsPremium(true);
-          await savePremiumStatus(true);
-          Alert.alert(
-            'Success',
-            'Your premium subscription has been restored!'
-          );
-        } else {
-          Alert.alert(
-            'No Purchases Found',
-            'No previous purchases were found for this Apple ID.'
-          );
-        }
+      // Just re-check AsyncStorage and show message
+      const premiumStatus = await AsyncStorage.getItem(PREMIUM_STATUS_KEY);
+      if (premiumStatus === 'true') {
+        setIsPremium(true);
+        Alert.alert('Success', 'Your premium subscription has been restored!');
       } else {
-        Alert.alert('Error', 'Could not restore purchases. Please try again.');
+        Alert.alert('No Purchases Found', 'No previous purchases were found.');
       }
     } catch (error) {
       Alert.alert('Error', 'Could not restore purchases. Please try again.');
-      console.error('Restore error:', error);
     }
+  };
+
+  // Simplified IAP check - just check if user already has premium
+  const checkExistingPurchases = async () => {
+    try {
+      // Check AsyncStorage for existing premium status
+      const premiumStatus = await AsyncStorage.getItem(PREMIUM_STATUS_KEY);
+      if (premiumStatus === 'true') {
+        console.log('✅ [IAP] Premium status found in storage');
+        setIsPremium(true);
+      }
+    } catch (error) {
+      console.log('❌ [IAP] Error checking existing purchases:', error);
+    }
+  };
+
+  // Simplified success handler - just check premium status
+  const handleSubscriptionSuccess = async () => {
+    console.log('✅ [IAP] Subscription successful, enabling premium');
+    setIsPremium(true);
+    await savePremiumStatus(true);
+    setShowSubscriptions(false);
   };
 
   // Create first habit for new users
@@ -2346,6 +2546,7 @@ export default function HomeScreen() {
     const firstHabit = {
       id: Date.now().toString(),
       name: 'My Habit',
+      description: '', // Add description field
       color: '#4CAF50',
       createdAt: new Date().toISOString(),
       trackingDays: [0, 1, 2, 3, 4, 5, 6], // Default: track all days (Sunday=0 to Saturday=6)
@@ -2439,16 +2640,9 @@ export default function HomeScreen() {
     loadAllData();
   }, []);
 
-  // Initialize purchases when component mounts
+  // Check existing purchases when component mounts
   useEffect(() => {
-    initializePurchases();
-
-    // Cleanup listener on unmount
-    return () => {
-      if (Platform.OS === 'ios') {
-        IAP.disconnectAsync();
-      }
-    };
+    checkExistingPurchases();
   }, []);
 
   // Set up notifications when app loads
@@ -2463,6 +2657,32 @@ export default function HomeScreen() {
 
     setupNotifications();
   }, []);
+
+  // Save all data when app goes to background
+  useEffect(() => {
+    const handleAppStateChange = nextAppState => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        // Save all data when app goes to background
+        if (!isLoading) {
+          saveHabitData(habitData);
+          saveHabitsList(habitsList);
+          if (selectedHabitId) saveSelectedHabit(selectedHabitId);
+          savePremiumStatus(isPremium);
+          AsyncStorage.setItem(THEME_KEY, theme);
+          console.log('All data saved on app background');
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener(
+      'change',
+      handleAppStateChange
+    );
+
+    return () => {
+      subscription?.remove();
+    };
+  }, [habitData, habitsList, selectedHabitId, isPremium, theme, isLoading]);
 
   // Save data whenever habitData changes (but not on initial load)
   useEffect(() => {
@@ -2509,7 +2729,6 @@ export default function HomeScreen() {
   const handleSelectHabit = habitId => {
     setSelectedHabitId(habitId);
   };
-
   // Handle updating a habit
   const handleUpdateHabit = updatedHabit => {
     const updatedHabits = habitsList.map(habit =>
@@ -2538,7 +2757,7 @@ export default function HomeScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             // Remove from habits list
             const updatedHabits = habitsList.filter(h => h.id !== habitId);
             setHabitsList(updatedHabits);
@@ -2556,6 +2775,12 @@ export default function HomeScreen() {
               // Create first habit for empty state
               createFirstHabit();
             }
+
+            // Force save to ensure cleanup
+            await saveHabitData(updatedData);
+            await saveHabitsList(updatedHabits);
+
+            console.log('Habit deleted successfully:', habitId);
           },
         },
       ]
@@ -2594,102 +2819,74 @@ export default function HomeScreen() {
 
   const exportUserData = async () => {
     try {
-      const readableData = habitsList
-        .map(habit => {
-          const entries = habitData[habit.id] ?? {};
-          const completedDates = Object.keys(entries).filter(
-            date => entries[date] === 'completed'
-          );
+      let exportText = 'Exported Habit Data\n\n';
 
-          return `
-Habit: ${habit.name}
-          Color: ${habit.color}
-          Created: ${new Date(habit.createdAt).toLocaleDateString()}
-          Days Tracked: ${completedDates.length}
-          Dates: ${completedDates.join(', ')}
-`.trim();
-        })
-        .join('\n\n');
+      for (const habit of habitsList) {
+        const { id, name, color, description, createdDate } = habit;
+        const habitDataForExport = habitData[id] || {};
 
-      const finalText = `Exported Habit Data\n\n${readableData}\n\nPremium: ${
-        isPremium ? 'Yes' : 'No'
-      }\nExported: ${new Date().toLocaleString()}`;
-
-      const fileUri = FileSystem.documentDirectory + 'habit_data_export.txt';
-
-      await FileSystem.writeAsStringAsync(fileUri, finalText, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(fileUri);
-      } else {
-        Alert.alert(
-          'Sharing Not Available',
-          'The text file was saved but could not be shared.'
+        const dates = Object.keys(habitDataForExport).filter(
+          date => habitDataForExport[date] === 'completed'
         );
+
+        const formattedDates = dates
+          .sort((a, b) => new Date(b) - new Date(a))
+          .map(date =>
+            new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            })
+          )
+          .join(', ');
+
+        // Calculate % completed
+        const today = new Date();
+        const viewMonth = today.getMonth();
+        const viewYear = today.getFullYear();
+        const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+        const completedThisMonth = dates.filter(d => {
+          const date = new Date(d + 'T00:00:00');
+          return (
+            date.getMonth() === viewMonth && date.getFullYear() === viewYear
+          );
+        }).length;
+
+        const percentage =
+          daysInMonth > 0
+            ? Math.round((completedThisMonth / daysInMonth) * 100)
+            : 0;
+
+        exportText += `Habit: ${name}\n`;
+        exportText += `  Description: ${description || 'None'}\n`;
+        exportText += `  Color: ${color}\n`;
+        exportText += `  Created: ${
+          createdDate
+            ? new Date(createdDate).toLocaleDateString('en-US')
+            : 'N/A'
+        }\n`;
+        exportText += `  Completion: ${percentage}% this month\n`;
+        exportText += `  Days Tracked: ${dates.length}\n`;
+        exportText += `  Dates: ${formattedDates || 'None'}\n\n`;
       }
+
+      exportText += `Premium: ${isPremium ? 'Yes' : 'No'}\n`;
+      exportText += `Exported: ${new Date().toLocaleString()}`;
+
+      const exportPath = `${FileSystem.documentDirectory}habit_export.txt`;
+      await FileSystem.writeAsStringAsync(exportPath, exportText);
+      await Sharing.shareAsync(exportPath, {
+        mimeType: 'text/plain',
+        dialogTitle: 'Export Habit Data',
+      });
     } catch (error) {
-      Alert.alert('Error', 'Could not export data. Please try again.');
+      Alert.alert('Export Failed', 'Unable to export your data.');
+      console.error('Export error:', error);
     }
   };
 
-  // Handle premium upgrade with real IAP
-  const handleUpgradePremium = async () => {
-    try {
-      // Get available products
-      const { responseCode, results } = await IAP.getProductsAsync([
-        PRODUCT_IDS.MONTHLY,
-        PRODUCT_IDS.YEARLY,
-      ]);
-
-      if (
-        responseCode !== IAP.IAPResponseCode.OK ||
-        !results ||
-        results.length === 0
-      ) {
-        Alert.alert(
-          'Error',
-          'Could not load subscription options. Please try again later.'
-        );
-        return;
-      }
-
-      // Find the products to get real pricing
-      const monthlyProduct = results.find(
-        p => p.productId === PRODUCT_IDS.MONTHLY
-      );
-      const yearlyProduct = results.find(
-        p => p.productId === PRODUCT_IDS.YEARLY
-      );
-
-      // Show subscription options with real pricing
-      Alert.alert(
-        'Choose Your Plan',
-        'Unlock unlimited habits and premium features.\n\nBy subscribing you agree to our Terms of Use (https://ktforge.dev/habittracker-eula.html) and Privacy Policy (https://ktforge.dev/habittracker-privacy.html).',
-        [
-          {
-            text: `Monthly - ${monthlyProduct?.price || '$4.99'}`,
-            onPress: () => purchaseSubscription(PRODUCT_IDS.MONTHLY),
-          },
-          {
-            text: `Yearly - ${yearlyProduct?.price || '$29.99'} (Save 50%!)`,
-            onPress: () => purchaseSubscription(PRODUCT_IDS.YEARLY),
-            style: 'default',
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-        ]
-      );
-    } catch (error) {
-      Alert.alert(
-        'Error',
-        'Unable to load subscriptions. Please check your connection.'
-      );
-      console.error('Upgrade error:', error);
-    }
+  const handleUpgradePremium = () => {
+    setShowSubscriptions(true);
   };
 
   // Handle when user taps on a day
@@ -2741,7 +2938,6 @@ Habit: ${habit.name}
     }
   };
 
-  // Handle quick complete today button
   const handleTodayPress = todayDate => {
     if (!selectedHabitId) return;
 
@@ -2770,81 +2966,187 @@ Habit: ${habit.name}
     );
   }
 
+  const currentTheme = THEMES[theme];
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        {/* Habit Selector */}
-        <View style={styles.habitSelectorContainer}>
-          <HabitSelector
-            habits={habitsList}
-            selectedHabitId={selectedHabitId}
-            onSelectHabit={handleSelectHabit}
-            onAddHabit={() => setShowAddHabit(true)}
-            onDeleteHabit={handleDeleteHabit}
-          />
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: currentTheme.background }]}
+    >
+      <StatusBar style={statusBarStyle} />
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scrollView}
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <ScrollView
+          ref={scrollRef}
+          style={styles.scrollView}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+        >
+          {/* Habit Selector */}
+          <View
+            style={[
+              styles.habitSelectorContainer,
+              { backgroundColor: currentTheme.card },
+            ]}
+          >
+            <HabitSelector
+              habits={habitsList}
+              selectedHabitId={selectedHabitId}
+              onSelectHabit={handleSelectHabit}
+              onAddHabit={() => setShowAddHabit(true)}
+              onDeleteHabit={handleDeleteHabit}
+              theme={currentTheme}
+            />
 
-          {/* Edit and Settings Buttons */}
+            {/* Edit and Settings Buttons */}
+            {selectedHabit && (
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => setShowEditHabit(true)}
+                >
+                  <Text style={styles.editIcon}>✏️</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => {
+                    Alert.alert(
+                      'Delete Habit',
+                      'Are you sure you want to delete this habit?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: () => {
+                            const selectedHabitId = selectedHabit?.id;
+                            if (selectedHabitId) {
+                              const updatedHabits = habitsList.filter(
+                                h => h.id !== selectedHabitId
+                              );
+                              setHabitsList(updatedHabits);
+                              setSelectedHabitId(updatedHabits[0]?.id ?? null);
+                            }
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                >
+                  <Text style={styles.editIcon}>🗑️</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.settingsButton}
+                  onPress={() => setShowSettings(true)}
+                >
+                  <Text style={styles.settingsIcon}>⚙️</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
+          {/* Calendar - Only show if we have a selected habit */}
           {selectedHabit && (
-            <View style={styles.buttonContainer}>
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={() => setShowEditHabit(true)}
-              >
-                <Text style={styles.editIcon}>✏️</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.settingsButton}
-                onPress={() => setShowSettings(true)}
-              >
-                <Text style={styles.settingsIcon}>⚙️</Text>
-              </TouchableOpacity>
-            </View>
+            <CalendarGrid
+              habitData={currentHabitData}
+              selectedHabit={selectedHabit}
+              onDayPress={handleDayPress}
+              onSettingsPress={() => setShowSettings(true)}
+              onTodayPress={handleTodayPress}
+              isPremium={isPremium}
+              theme={currentTheme}
+            />
           )}
-        </View>
+        </ScrollView>
 
-        {/* Calendar - Only show if we have a selected habit */}
-        {selectedHabit && (
-          <CalendarGrid
-            habitData={currentHabitData}
-            selectedHabit={selectedHabit}
-            onDayPress={handleDayPress}
-            onSettingsPress={() => setShowSettings(true)}
-            onTodayPress={handleTodayPress}
-            isPremium={isPremium}
+        {/* Scroll-to-top Home button */}
+        <TouchableOpacity
+          style={styles.homeButton}
+          onPress={() => {
+            scrollRef.current?.scrollTo({ y: 0, animated: true });
+          }}
+        >
+          <Text style={styles.homeButtonText}>🏠</Text>
+        </TouchableOpacity>
+
+        <SettingsModal
+          visible={showSettings}
+          habitName={selectedHabit?.name || ''}
+          selectedHabit={selectedHabit}
+          onClose={() => setShowSettings(false)}
+          onHabitNameChange={handleHabitNameChange}
+          onResetData={handleResetData}
+          onDeleteHabit={handleDeleteHabit}
+          onUpgradePremium={handleUpgradePremium}
+          onRestorePurchases={restorePurchases}
+          habitData={habitData}
+          setHabitData={setHabitData}
+          habitsList={habitsList}
+          exportUserData={exportUserData}
+          testIAPConnection={testIAPConnection}
+          isPremium={isPremium}
+          theme={theme}
+          onThemeChange={newTheme => {
+            setTheme(newTheme);
+            AsyncStorage.setItem(THEME_KEY, newTheme);
+          }}
+          setShowProgressGraph={setShowProgressGraph}
+        />
+
+        <AddHabitModal
+          visible={showAddHabit}
+          onClose={() => setShowAddHabit(false)}
+          onAddHabit={handleAddHabit}
+          habitCount={habitsList.length}
+          isPremium={isPremium}
+          onUpgradePremium={handleUpgradePremium}
+          theme={currentTheme}
+        />
+        <EditHabitModal
+          visible={showEditHabit}
+          onClose={() => setShowEditHabit(false)}
+          habit={selectedHabit}
+          onUpdateHabit={handleUpdateHabit}
+        />
+
+        <Modal
+          visible={showSubscriptions}
+          animationType="slide"
+          presentationStyle="pageSheet"
+        >
+          <View style={styles.modalHeader}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowSubscriptions(false)}
+            >
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <Subscriptions
+            visible={showSubscriptions}
+            onClose={() => setShowSubscriptions(false)}
+            onSuccess={() => {
+              setIsPremium(true);
+              setShowSubscriptions(false);
+            }}
+            restorePurchases={restorePurchases}
+            theme={theme}
           />
-        )}
-      </ScrollView>
-      <SettingsModal
-        visible={showSettings}
-        habitName={selectedHabit?.name || ''}
-        selectedHabit={selectedHabit}
-        onClose={() => setShowSettings(false)}
-        onHabitNameChange={handleHabitNameChange}
-        onResetData={handleResetData}
-        onDeleteHabit={handleDeleteHabit}
-        onUpgradePremium={handleUpgradePremium}
-        onRestorePurchases={restorePurchases}
-        habitData={habitData}
-        setHabitData={setHabitData}
-        habitsList={habitsList}
-        exportUserData={exportUserData}
-        testIAPConnection={testIAPConnection}
-      />
+        </Modal>
 
-      <AddHabitModal
-        visible={showAddHabit}
-        onClose={() => setShowAddHabit(false)}
-        onAddHabit={handleAddHabit}
-        habitCount={habitsList.length}
-        isPremium={isPremium}
-        onUpgradePremium={handleUpgradePremium}
-      />
-      <EditHabitModal
-        visible={showEditHabit}
-        onClose={() => setShowEditHabit(false)}
-        habit={selectedHabit}
-        onUpdateHabit={handleUpdateHabit}
-      />
+        <ProgressGraph
+          visible={showProgressGraph}
+          onClose={() => setShowProgressGraph(false)}
+          habitData={habitData}
+          selectedHabit={selectedHabit}
+          theme={theme}
+        />
+      </ScrollView>{' '}
+      {/* ✅ ADD THIS LINE */}
     </SafeAreaView>
   );
 }
@@ -2852,7 +3154,6 @@ Habit: ${habit.name}
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
   },
   scrollView: {
     flex: 1,
@@ -2895,6 +3196,30 @@ const styles = StyleSheet.create({
     color: '#666666',
     fontWeight: '500',
   },
+  homeButton: {
+    position: 'absolute',
+    bottom: 30,
+    left: '50%',
+    transform: [{ translateX: -28 }], // half of the button width
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#4CAF50',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+
+  homeButtonText: {
+    fontSize: 24,
+  },
 });
 
 // Habit Selector Styles
@@ -2934,7 +3259,6 @@ const habitSelectorStyles = StyleSheet.create({
   habitName: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333333',
   },
   addButton: {
     width: 30,
@@ -2970,19 +3294,19 @@ const habitSelectorStyles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   selectedTab: {
-    backgroundColor: '#F0F0F0',
-    borderBottomWidth: 2,
+    borderBottomWidth: 3, // Thicker border for selected
   },
   tabText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#666666',
+    color: '#666666', // greyed out for unselected
     marginLeft: 4,
   },
   selectedTabText: {
-    color: '#333333',
-    fontWeight: '600',
+    color: '#333333', // dark text for selected
+    fontWeight: '700',
   },
+
   deleteButton: {
     position: 'absolute',
     top: -4,
@@ -3171,13 +3495,38 @@ const addHabitStyles = StyleSheet.create({
   disabledButtonText: {
     color: '#999999',
   },
+  descriptionInput: {
+    minHeight: 60,
+    textAlignVertical: 'top',
+    paddingTop: 12,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+  },
+  closeButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#F5F5F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: 'bold',
+  },
 });
 
 // Calendar component styles
 const calendarStyles = StyleSheet.create({
   container: {
     padding: 20,
-    backgroundColor: '#FFFFFF',
   },
   progressSection: {
     marginBottom: 20,
@@ -3385,23 +3734,31 @@ const calendarStyles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
   },
+  calendarContainer: {
+    alignItems: 'center',
+  },
+
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-start',
-    paddingHorizontal: 5,
+    justifyContent: 'flex-start', // ensures wrapping starts at left
+    alignSelf: 'center', // centers the whole grid horizontally
+    width: '100%',
+    paddingHorizontal: 12,
+    paddingBottom: 20,
   },
+
   dayContainer: {
-    width: '13%',
-    aspectRatio: 0.8,
+    width: '14.2857%', // exactly 1/7 of a row
+    aspectRatio: 0.85,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
-    marginHorizontal: '1%',
     backgroundColor: '#F5F5F5',
     borderRadius: 8,
     padding: 4,
   },
+
   todayContainer: {
     backgroundColor: '#E3F2FD',
     borderWidth: 2,
@@ -3416,13 +3773,17 @@ const calendarStyles = StyleSheet.create({
     fontWeight: '500',
     color: '#888888',
     marginBottom: 2,
+    textAlign: 'center',
+    lineHeight: 12,
   },
   dayNumber: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '600',
     color: '#333333',
-    marginBottom: 4,
     textAlign: 'center',
+    marginBottom: 4,
+    marginTop: 2,
+    lineHeight: 12,
   },
   todayText: {
     color: '#1976D2',
@@ -3432,15 +3793,19 @@ const calendarStyles = StyleSheet.create({
     color: '#CCCCCC',
   },
   statusIndicator: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 4,
   },
   statusSymbol: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: 'bold',
+    lineHeight: 12,
+    textAlign: 'center',
+    textAlignVertical: 'center',
   },
   futureIndicator: {
     width: 20,
@@ -3456,19 +3821,24 @@ const calendarStyles = StyleSheet.create({
   },
   legend: {
     flexDirection: 'row',
+    justifyContent: 'center', // Center the legend as a whole
+    alignItems: 'center',
     flexWrap: 'wrap',
-    justifyContent: 'space-around',
-    marginTop: 20,
-    paddingTop: 15,
+    gap: 16,
+    marginTop: 30,
+    paddingTop: 20,
+    paddingBottom: 60,
     borderTopWidth: 1,
     borderTopColor: '#E0E0E0',
+    paddingHorizontal: 10,
   },
+
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
-    minWidth: '45%',
+    gap: 6, // horizontal space between dot and label
   },
+
   legendDot: {
     width: 16,
     height: 16,
@@ -3497,7 +3867,6 @@ const settingsStyles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     width: '90%',
     maxHeight: '80%',
