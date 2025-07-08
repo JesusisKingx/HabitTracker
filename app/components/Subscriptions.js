@@ -9,6 +9,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Dimensions,
 } from 'react-native';
 
 import {
@@ -304,14 +305,23 @@ const Subscriptions = ({
   );
 };
 
+// Add device detection if not already imported from parent
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const DeviceInfo = {
+  isTablet: () => {
+    const aspectRatio = screenHeight / screenWidth;
+    return screenWidth >= 768 || (aspectRatio < 1.6 && screenWidth >= 468);
+  },
+};
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
   freeTrialBanner: {
     backgroundColor: '#E8F5E8',
     borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 10,
-    marginVertical: 10,
+    padding: DeviceInfo.isTablet() ? 20 : 16,
+    marginHorizontal: DeviceInfo.isTablet() ? 20 : 10,
+    marginVertical: DeviceInfo.isTablet() ? 15 : 10,
     borderWidth: 1,
     borderColor: '#4CAF50',
     alignItems: 'center',

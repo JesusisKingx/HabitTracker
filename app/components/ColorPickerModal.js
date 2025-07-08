@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  Dimensions,
+} from 'react-native';
 import ColorPicker from 'react-native-wheel-color-picker';
 
 export default function ColorPickerModal({
@@ -49,6 +56,15 @@ export default function ColorPickerModal({
   );
 }
 
+// Device detection utilities (if not imported from parent)
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const DeviceInfo = {
+  isTablet: () => {
+    const aspectRatio = screenHeight / screenWidth;
+    return screenWidth >= 768 || (aspectRatio < 1.6 && screenWidth >= 468);
+  },
+};
+
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
@@ -59,9 +75,10 @@ const styles = StyleSheet.create({
   modal: {
     backgroundColor: '#FFF',
     borderRadius: 20,
-    paddingVertical: 18, // 🔼 Increase for more height to fit color wheel and buttons
-    paddingHorizontal: 28, // 🔼 Increase to widen modal (try 28–32)
-    width: '80%', // 🔼 Wider modal — adjust between '90%' and '95%' if needed
+    paddingVertical: DeviceInfo.isTablet() ? 24 : 18,
+    paddingHorizontal: DeviceInfo.isTablet() ? 36 : 28,
+    width: DeviceInfo.isTablet() ? 500 : '80%',
+    maxWidth: DeviceInfo.isTablet() ? 500 : undefined,
     alignItems: 'center',
   },
   title: {

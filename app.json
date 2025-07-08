@@ -15,7 +15,7 @@
     "ios": {
       "bundleIdentifier": "com.ktforge.habittracker",
       "buildNumber": "4",
-      "supportsTablet": false,
+      "supportsTablet": true,
       "jsEngine": "hermes",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,

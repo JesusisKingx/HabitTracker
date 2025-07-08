@@ -1,7 +1,7 @@
 // MY Habit tracker IOS App with real IAP
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Dimensions, Platform } from 'react-native';
 import 'react-native-gesture-handler';
 
 import { ITUNES_SHARED_SECRET } from '@env';
@@ -9,6 +9,47 @@ console.log(
   '🔐 IAP Shared Secret:',
   ITUNES_SHARED_SECRET ? 'Found' : 'Missing'
 );
+
+// Device detection utilities
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+const DeviceInfo = {
+  isTablet: () => {
+    const aspectRatio = screenHeight / screenWidth;
+    return screenWidth >= 768 || (aspectRatio < 1.6 && screenWidth >= 468);
+  },
+
+  isMacOS: () => {
+    return (
+      Platform.OS === 'macos' ||
+      (Platform.OS === 'web' && navigator?.platform?.includes('Mac'))
+    );
+  },
+
+  screenSize: {
+    width: screenWidth,
+    height: screenHeight,
+    isLarge: screenWidth >= 768,
+    isXLarge: screenWidth >= 1024,
+  },
+};
+
+// Responsive sizing helpers
+const responsive = {
+  fontSize: size => {
+    if (DeviceInfo.isTablet()) {
+      return size * 1.2; // 20% larger on tablets
+    }
+    return size;
+  },
+
+  spacing: space => {
+    if (DeviceInfo.isTablet()) {
+      return space * 1.5; // 50% more spacing on tablets
+    }
+    return space;
+  },
+};
 
 import {
   Alert,
@@ -3279,21 +3320,154 @@ export default function HomeScreen() {
 
   const currentTheme = THEMES[theme];
 
+  // Tablet layout renderer
+  const renderTabletLayout = () => (
+    <View style={styles.tabletContainer}>
+      {/* Left Panel - Habits List */}
+      <View
+        style={[styles.tabletSidebar, { backgroundColor: currentTheme.card }]}
+      >
+        <Text style={[styles.sidebarTitle, { color: currentTheme.text }]}>
+          My Habits
+        </Text>
+        <ScrollView style={styles.habitsList}>
+          {habitsList.map(habit => (
+            <TouchableOpacity
+              key={habit.id}
+              style={[
+                styles.habitListItem,
+                selectedHabitId === habit.id && styles.habitListItemSelected,
+                {
+                  borderColor:
+                    selectedHabitId === habit.id ? habit.color : 'transparent',
+                },
+              ]}
+              onPress={() => setSelectedHabitId(habit.id)}
+            >
+              <View
+                style={[
+                  styles.habitColorIndicator,
+                  { backgroundColor: habit.color },
+                ]}
+              />
+              <View style={styles.habitListInfo}>
+                <Text
+                  style={[styles.habitListName, { color: currentTheme.text }]}
+                >
+                  {habit.name}
+                </Text>
+                {habit.description ? (
+                  <Text
+                    style={[
+                      styles.habitListDescription,
+                      { color: currentTheme.subtext },
+                    ]}
+                  >
+                    {habit.description}
+                  </Text>
+                ) : null}
+              </View>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            style={styles.addHabitButton}
+            onPress={() => setShowAddHabit(true)}
+          >
+            <Text style={styles.addHabitButtonText}>+ Add New Habit</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+
+      {/* Right Panel - Calendar */}
+      <ScrollView
+        ref={scrollRef}
+        style={styles.tabletMainContent}
+        contentContainerStyle={{ flexGrow: 1 }}
+      >
+        {/* Add the button row above the calendar */}
+        {selectedHabit && (
+          <>
+            <View
+              style={[
+                styles.habitSelectorContainer,
+                { backgroundColor: currentTheme.card },
+              ]}
+            >
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => setShowEditHabit(true)}
+                >
+                  <Text style={styles.editIcon}>✏️</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => {
+                    Alert.alert(
+                      'Delete Habit',
+                      'Are you sure you want to delete this habit?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete',
+                          style: 'destructive',
+                          onPress: () => {
+                            const selectedHabitId = selectedHabit?.id;
+                            if (selectedHabitId) {
+                              const updatedHabits = habitsList.filter(
+                                h => h.id !== selectedHabitId
+                              );
+                              setHabitsList(updatedHabits);
+                              setSelectedHabitId(updatedHabits[0]?.id ?? null);
+                            }
+                          },
+                        },
+                      ]
+                    );
+                  }}
+                >
+                  <Text style={styles.editIcon}>🗑️</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.settingsButton}
+                  onPress={() => setShowSettings(true)}
+                >
+                  <Text style={styles.settingsIcon}>⚙️</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <CalendarGrid
+              habitData={currentHabitData}
+              selectedHabit={selectedHabit}
+              onDayPress={handleDayPress}
+              onSettingsPress={() => setShowSettings(true)}
+              onTodayPress={handleTodayPress}
+              isPremium={isPremium}
+              theme={currentTheme}
+            />
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: currentTheme.background }]}
     >
       <StatusBar style={statusBarStyle} />
-      <ScrollView
-        ref={scrollRef}
-        style={styles.scrollView}
-        contentContainerStyle={{ flexGrow: 1 }}
-        keyboardShouldPersistTaps="handled"
-      >
+
+      {DeviceInfo.isTablet() ? (
+        renderTabletLayout()
+      ) : (
         <ScrollView
           ref={scrollRef}
           style={styles.scrollView}
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+          keyboardShouldPersistTaps="handled"
         >
           {/* Habit Selector */}
           <View
@@ -3373,95 +3547,181 @@ export default function HomeScreen() {
             />
           )}
         </ScrollView>
+      )}
 
-        {/* Scroll-to-top Home button */}
-        <TouchableOpacity
-          style={styles.homeButton}
-          onPress={() => {
-            scrollRef.current?.scrollTo({ y: 0, animated: true });
-          }}
-        >
-          <Text style={styles.homeButtonText}>🏠</Text>
-        </TouchableOpacity>
+      {/* Scroll-to-top Home button */}
+      <TouchableOpacity
+        style={styles.homeButton}
+        onPress={() => {
+          scrollRef.current?.scrollTo({ y: 0, animated: true });
+        }}
+      >
+        <Text style={styles.homeButtonText}>🏠</Text>
+      </TouchableOpacity>
 
-        <SettingsModal
-          visible={showSettings}
-          habitName={selectedHabit?.name || ''}
-          selectedHabit={selectedHabit}
-          onClose={() => setShowSettings(false)}
-          onHabitNameChange={handleHabitNameChange}
-          onResetData={handleResetData}
-          onDeleteHabit={handleDeleteHabit}
-          onUpgradePremium={handleUpgradePremium}
-          onRestorePurchases={restorePurchases}
-          habitData={habitData}
-          setHabitData={setHabitData}
-          habitsList={habitsList}
-          exportUserData={exportUserData}
-          testIAPConnection={testIAPConnection}
-          isPremium={isPremium}
-          theme={theme}
-          onThemeChange={newTheme => {
-            setTheme(newTheme);
-            AsyncStorage.setItem(THEME_KEY, newTheme);
-          }}
-          setShowProgressGraph={setShowProgressGraph}
-        />
+      <SettingsModal
+        visible={showSettings}
+        habitName={selectedHabit?.name || ''}
+        selectedHabit={selectedHabit}
+        onClose={() => setShowSettings(false)}
+        onHabitNameChange={handleHabitNameChange}
+        onResetData={handleResetData}
+        onDeleteHabit={handleDeleteHabit}
+        onUpgradePremium={handleUpgradePremium}
+        onRestorePurchases={restorePurchases}
+        habitData={habitData}
+        setHabitData={setHabitData}
+        habitsList={habitsList}
+        exportUserData={exportUserData}
+        testIAPConnection={testIAPConnection}
+        isPremium={isPremium}
+        theme={theme}
+        onThemeChange={newTheme => {
+          setTheme(newTheme);
+          AsyncStorage.setItem(THEME_KEY, newTheme);
+        }}
+        setShowProgressGraph={setShowProgressGraph}
+      />
 
-        <AddHabitModal
-          visible={showAddHabit}
-          onClose={() => setShowAddHabit(false)}
-          onAddHabit={handleAddHabit}
-          habitCount={habitsList.length}
-          isPremium={isPremium}
-          onUpgradePremium={handleUpgradePremium}
-          theme={currentTheme}
-        />
-        <EditHabitModal
-          visible={showEditHabit}
-          onClose={() => setShowEditHabit(false)}
-          habit={selectedHabit}
-          onUpdateHabit={handleUpdateHabit}
-          isPremium={isPremium}
-          onUpgradePremium={handleUpgradePremium}
-        />
+      <AddHabitModal
+        visible={showAddHabit}
+        onClose={() => setShowAddHabit(false)}
+        onAddHabit={handleAddHabit}
+        habitCount={habitsList.length}
+        isPremium={isPremium}
+        onUpgradePremium={handleUpgradePremium}
+        theme={currentTheme}
+      />
+      <EditHabitModal
+        visible={showEditHabit}
+        onClose={() => setShowEditHabit(false)}
+        habit={selectedHabit}
+        onUpdateHabit={handleUpdateHabit}
+        isPremium={isPremium}
+        onUpgradePremium={handleUpgradePremium}
+      />
 
-        <Modal
+      <Modal
+        visible={showSubscriptions}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View style={styles.modalHeader}>
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => setShowSubscriptions(false)}
+          >
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+        <Subscriptions
           visible={showSubscriptions}
-          animationType="slide"
-          presentationStyle="pageSheet"
-        >
-          <View style={styles.modalHeader}>
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setShowSubscriptions(false)}
-            >
-              <Text style={styles.closeButtonText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <Subscriptions
-            visible={showSubscriptions}
-            onClose={() => setShowSubscriptions(false)}
-            onSuccess={() => {
-              setIsPremium(true);
-              setShowSubscriptions(false);
-            }}
-            restorePurchases={restorePurchases}
-            theme={theme}
-          />
-        </Modal>
-
-        <ProgressGraph
-          visible={showProgressGraph}
-          onClose={() => setShowProgressGraph(false)}
-          habitData={habitData}
-          selectedHabit={selectedHabit}
+          onClose={() => setShowSubscriptions(false)}
+          onSuccess={() => {
+            setIsPremium(true);
+            setShowSubscriptions(false);
+          }}
+          restorePurchases={restorePurchases}
           theme={theme}
-          isPremium={isPremium}
-          onUpgradePremium={handleUpgradePremium}
         />
-      </ScrollView>{' '}
-      {/* ✅ ADD THIS LINE */}
+      </Modal>
+
+      <ProgressGraph
+        visible={showProgressGraph}
+        onClose={() => setShowProgressGraph(false)}
+        habitData={habitData}
+        selectedHabit={selectedHabit}
+        theme={theme}
+        isPremium={isPremium}
+        onUpgradePremium={handleUpgradePremium}
+      />
+
+      {/* Scroll-to-top Home button */}
+      <TouchableOpacity
+        style={styles.homeButton}
+        onPress={() => {
+          scrollRef.current?.scrollTo({ y: 0, animated: true });
+        }}
+      >
+        <Text style={styles.homeButtonText}>🏠</Text>
+      </TouchableOpacity>
+
+      <SettingsModal
+        visible={showSettings}
+        habitName={selectedHabit?.name || ''}
+        selectedHabit={selectedHabit}
+        onClose={() => setShowSettings(false)}
+        onHabitNameChange={handleHabitNameChange}
+        onResetData={handleResetData}
+        onDeleteHabit={handleDeleteHabit}
+        onUpgradePremium={handleUpgradePremium}
+        onRestorePurchases={restorePurchases}
+        habitData={habitData}
+        setHabitData={setHabitData}
+        habitsList={habitsList}
+        exportUserData={exportUserData}
+        testIAPConnection={testIAPConnection}
+        isPremium={isPremium}
+        theme={theme}
+        onThemeChange={newTheme => {
+          setTheme(newTheme);
+          AsyncStorage.setItem(THEME_KEY, newTheme);
+        }}
+        setShowProgressGraph={setShowProgressGraph}
+      />
+
+      <AddHabitModal
+        visible={showAddHabit}
+        onClose={() => setShowAddHabit(false)}
+        onAddHabit={handleAddHabit}
+        habitCount={habitsList.length}
+        isPremium={isPremium}
+        onUpgradePremium={handleUpgradePremium}
+        theme={currentTheme}
+      />
+      <EditHabitModal
+        visible={showEditHabit}
+        onClose={() => setShowEditHabit(false)}
+        habit={selectedHabit}
+        onUpdateHabit={handleUpdateHabit}
+        isPremium={isPremium}
+        onUpgradePremium={handleUpgradePremium}
+      />
+
+      <Modal
+        visible={showSubscriptions}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View style={styles.modalHeader}>
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => setShowSubscriptions(false)}
+          >
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+        <Subscriptions
+          visible={showSubscriptions}
+          onClose={() => setShowSubscriptions(false)}
+          onSuccess={() => {
+            setIsPremium(true);
+            setShowSubscriptions(false);
+          }}
+          restorePurchases={restorePurchases}
+          theme={theme}
+        />
+      </Modal>
+
+      <ProgressGraph
+        visible={showProgressGraph}
+        onClose={() => setShowProgressGraph(false)}
+        habitData={habitData}
+        selectedHabit={selectedHabit}
+        theme={theme}
+        isPremium={isPremium}
+        onUpgradePremium={handleUpgradePremium}
+      />
     </SafeAreaView>
   );
 }
@@ -3479,6 +3739,82 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
     backgroundColor: '#FFFFFF',
+  },
+
+  // Tablet-specific styles
+  tabletContainer: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+
+  tabletSidebar: {
+    width: 320,
+    borderRightWidth: 1,
+    borderRightColor: '#E0E0E0',
+    paddingTop: 20,
+  },
+
+  sidebarTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+
+  habitsList: {
+    flex: 1,
+  },
+
+  habitListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: 'transparent',
+  },
+
+  habitListItemSelected: {
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+
+  habitColorIndicator: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+
+  habitListInfo: {
+    flex: 1,
+  },
+
+  habitListName: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  habitListDescription: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+
+  addHabitButton: {
+    margin: 20,
+    padding: 16,
+    backgroundColor: '#4CAF50',
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+
+  addHabitButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  tabletMainContent: {
+    flex: 1,
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -3513,12 +3849,20 @@ const styles = StyleSheet.create({
   },
   homeButton: {
     position: 'absolute',
-    bottom: 30,
-    left: '50%',
-    transform: [{ translateX: -28 }], // half of the button width
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    bottom: DeviceInfo.isTablet() || Platform.OS === 'web' ? 10 : 60,
+
+    left:
+      DeviceInfo.isTablet() || Platform.OS === 'web'
+        ? 320 + (DeviceInfo.screenSize.width - 320) / 2
+        : '50%',
+    transform: [
+      {
+        translateX: DeviceInfo.isTablet() || Platform.OS === 'web' ? -32 : -28,
+      },
+    ],
+    width: DeviceInfo.isTablet() || Platform.OS === 'web' ? 64 : 56,
+    height: DeviceInfo.isTablet() || Platform.OS === 'web' ? 64 : 56,
+    borderRadius: DeviceInfo.isTablet() || Platform.OS === 'web' ? 32 : 28,
     backgroundColor: '#4CAF50',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3533,7 +3877,7 @@ const styles = StyleSheet.create({
   },
 
   homeButtonText: {
-    fontSize: 24,
+    fontSize: DeviceInfo.isTablet() ? 28 : 24,
   },
 });
 
@@ -3693,8 +4037,9 @@ const addHabitStyles = StyleSheet.create({
   modalContent: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    width: '90%',
-    maxHeight: '85%',
+    width: DeviceInfo.isTablet() ? 600 : '90%',
+    maxWidth: DeviceInfo.isTablet() ? 600 : undefined,
+    maxHeight: DeviceInfo.isTablet() ? '70%' : '85%',
     paddingTop: 20,
     paddingBottom: 0,
   },
@@ -3862,15 +4207,18 @@ const addHabitStyles = StyleSheet.create({
 // Calendar component styles
 const calendarStyles = StyleSheet.create({
   container: {
-    padding: 20,
+    padding: DeviceInfo.isTablet() ? 40 : 20,
+    maxWidth: DeviceInfo.isTablet() ? 800 : '100%',
+    alignSelf: 'center',
+    width: '100%',
   },
   progressSection: {
-    marginBottom: 20,
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    marginBottom: DeviceInfo.isTablet() ? 30 : 20,
+    paddingHorizontal: DeviceInfo.isTablet() ? 30 : 20,
+    paddingVertical: DeviceInfo.isTablet() ? 24 : 16,
     backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    marginHorizontal: 10,
+    borderRadius: DeviceInfo.isTablet() ? 16 : 12,
+    marginHorizontal: DeviceInfo.isTablet() ? 20 : 10,
     borderWidth: 1,
     borderColor: '#E0E0E0',
   },
@@ -3950,13 +4298,13 @@ const calendarStyles = StyleSheet.create({
     opacity: 0.6,
   },
   todayButtonSection: {
-    marginBottom: 20,
-    paddingHorizontal: 10,
+    marginBottom: DeviceInfo.isTablet() ? 30 : 20,
+    paddingHorizontal: DeviceInfo.isTablet() ? 20 : 10,
   },
   todayButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    paddingVertical: DeviceInfo.isTablet() ? 20 : 16,
+    paddingHorizontal: DeviceInfo.isTablet() ? 32 : 24,
+    borderRadius: DeviceInfo.isTablet() ? 16 : 12,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -4003,18 +4351,19 @@ const calendarStyles = StyleSheet.create({
   streakCard: {
     flex: 1,
     backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 15,
-    marginHorizontal: 5,
+    borderRadius: DeviceInfo.isTablet() ? 16 : 12,
+    padding: DeviceInfo.isTablet() ? 24 : 15,
+    marginHorizontal: DeviceInfo.isTablet() ? 10 : 5,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#E0E0E0',
+    minHeight: DeviceInfo.isTablet() ? 140 : undefined,
   },
   streakNumber: {
-    fontSize: 32,
+    fontSize: DeviceInfo.isTablet() ? 42 : 32,
     fontWeight: 'bold',
     color: '#4CAF50',
-    marginBottom: 5,
+    marginBottom: DeviceInfo.isTablet() ? 8 : 5,
   },
   bestStreakNumber: {
     color: '#FF9800', // Orange color for best streak
@@ -4085,14 +4434,15 @@ const calendarStyles = StyleSheet.create({
   },
 
   dayContainer: {
-    width: '14.2857%', // exactly 1/7 of a row
-    aspectRatio: 0.85,
+    width: DeviceInfo.isTablet() ? '13%' : '14.2857%', // Slightly smaller % on iPad for margins
+    aspectRatio: DeviceInfo.isTablet() ? 1 : 0.85, // Square on iPad
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: DeviceInfo.isTablet() ? 15 : 10,
+    marginHorizontal: DeviceInfo.isTablet() ? '0.5%' : 0, // Add horizontal margins on iPad
     backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    padding: 4,
+    borderRadius: DeviceInfo.isTablet() ? 12 : 8,
+    padding: DeviceInfo.isTablet() ? 8 : 4,
   },
 
   todayContainer: {
@@ -4129,17 +4479,17 @@ const calendarStyles = StyleSheet.create({
     color: '#CCCCCC',
   },
   statusIndicator: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: DeviceInfo.isTablet() ? 24 : 18,
+    height: DeviceInfo.isTablet() ? 24 : 18,
+    borderRadius: DeviceInfo.isTablet() ? 12 : 9,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 4,
   },
   statusSymbol: {
-    fontSize: 12,
+    fontSize: DeviceInfo.isTablet() ? 16 : 12,
     fontWeight: 'bold',
-    lineHeight: 12,
+    lineHeight: DeviceInfo.isTablet() ? 16 : 12,
     textAlign: 'center',
     textAlignVertical: 'center',
   },
@@ -4204,8 +4554,9 @@ const settingsStyles = StyleSheet.create({
   },
   modalContent: {
     borderRadius: 12,
-    width: '90%',
-    maxHeight: '80%',
+    width: DeviceInfo.isTablet() ? 600 : '90%',
+    maxWidth: DeviceInfo.isTablet() ? 600 : undefined,
+    maxHeight: DeviceInfo.isTablet() ? '70%' : '80%',
     paddingTop: 20,
     paddingBottom: 0,
   },

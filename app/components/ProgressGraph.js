@@ -27,7 +27,15 @@ import {
 import { LineChart } from 'react-native-chart-kit';
 import { captureRef } from 'react-native-view-shot';
 
-const { width: screenWidth } = Dimensions.get('window');
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+// Device detection utilities (same as in index.tsx)
+const DeviceInfo = {
+  isTablet: () => {
+    const aspectRatio = screenHeight / screenWidth;
+    return screenWidth >= 768 || (aspectRatio < 1.6 && screenWidth >= 468);
+  },
+};
 
 export default function ProgressGraph({
   visible,
@@ -575,8 +583,8 @@ const styles = StyleSheet.create({
   },
   modal: {
     width: '100%',
-    maxWidth: 400,
-    maxHeight: '80%',
+    maxWidth: DeviceInfo?.isTablet?.() ? 600 : 400,
+    maxHeight: DeviceInfo?.isTablet?.() ? '70%' : '80%',
     borderRadius: 16,
     overflow: 'hidden',
     elevation: 5,
