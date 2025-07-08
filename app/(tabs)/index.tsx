@@ -28,6 +28,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
+import ColorPickerModal from '../components/ColorPickerModal';
 import ProgressGraph from '../components/ProgressGraph';
 import Subscriptions from '../components/Subscriptions';
 
@@ -224,11 +225,19 @@ const getStreakQuote = (streak, trackingDays) => {
 };
 
 // Edit Habit Modal Component
-const EditHabitModal = ({ visible, onClose, habit, onUpdateHabit }) => {
+const EditHabitModal = ({
+  visible,
+  onClose,
+  habit,
+  onUpdateHabit,
+  isPremium,
+  onUpgradePremium,
+}) => {
   const [habitName, setHabitName] = useState('');
   const [habitDescription, setHabitDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState(HABIT_COLORS[0].value);
   const [selectedDays, setSelectedDays] = useState([0, 1, 2, 3, 4, 5, 6]);
+  const [showColorPicker, setShowColorPicker] = useState(false);
 
   // Initialize form with current habit data
   useEffect(() => {
@@ -322,6 +331,58 @@ const EditHabitModal = ({ visible, onClose, habit, onUpdateHabit }) => {
 
             <View style={addHabitStyles.colorSection}>
               <Text style={addHabitStyles.label}>Choose Color</Text>
+
+              {/* Color Wheel Button - Always visible, locked for free users */}
+              <TouchableOpacity
+                style={[
+                  addHabitStyles.colorPickerButton,
+                  {
+                    backgroundColor: isPremium ? selectedColor : '#E0E0E0',
+                    borderWidth: isPremium ? 0 : 1,
+                    borderColor: '#CCCCCC',
+                    opacity: isPremium ? 1 : 0.7,
+                  },
+                ]}
+                onPress={() => {
+                  if (isPremium) {
+                    setShowColorPicker(true);
+                  } else {
+                    Alert.alert(
+                      'Premium Feature',
+                      'Custom colors are available with Premium. Upgrade to unlock unlimited color choices!',
+                      [
+                        { text: 'Maybe Later', style: 'cancel' },
+                        {
+                          text: 'Upgrade to Premium',
+                          onPress: () => {
+                            onClose();
+                            onUpgradePremium();
+                          },
+                        },
+                      ]
+                    );
+                  }
+                }}
+              >
+                <Text
+                  style={[
+                    addHabitStyles.colorPickerButtonText,
+                    { color: isPremium ? '#FFFFFF' : '#999999' },
+                  ]}
+                >
+                  {isPremium ? '🎨 Pick any Color' : '🔒 Pick any Color'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Preset Colors - Always visible */}
+              <Text
+                style={[
+                  addHabitStyles.label,
+                  { marginTop: 16, marginBottom: 8 },
+                ]}
+              >
+                Or choose a preset color:
+              </Text>
               <View style={addHabitStyles.colorGrid}>
                 {HABIT_COLORS.map(color => (
                   <TouchableOpacity
@@ -340,6 +401,19 @@ const EditHabitModal = ({ visible, onClose, habit, onUpdateHabit }) => {
                   </TouchableOpacity>
                 ))}
               </View>
+
+              {/* Color Picker Modal - Only for premium users */}
+              {isPremium && (
+                <ColorPickerModal
+                  visible={showColorPicker}
+                  initialColor={selectedColor}
+                  onClose={() => setShowColorPicker(false)}
+                  onSelect={color => {
+                    setSelectedColor(color);
+                    setShowColorPicker(false);
+                  }}
+                />
+              )}
 
               <Text style={addHabitStyles.label}>Track on these days:</Text>
               <View style={addHabitStyles.daySelector}>
@@ -403,6 +477,7 @@ const AddHabitModal = ({
   const [habitName, setHabitName] = useState('');
   const [habitDescription, setHabitDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState(HABIT_COLORS[0].value);
+  const [showColorPicker, setShowColorPicker] = useState(false);
   const [selectedDays, setSelectedDays] = useState([0, 1, 2, 3, 4, 5, 6]);
 
   const canAddHabit = isPremium || habitCount < 1;
@@ -526,6 +601,58 @@ const AddHabitModal = ({
 
             <View style={addHabitStyles.colorSection}>
               <Text style={addHabitStyles.label}>Choose Color</Text>
+
+              {/* Color Wheel Button - Always visible, locked for free users */}
+              <TouchableOpacity
+                style={[
+                  addHabitStyles.colorPickerButton,
+                  {
+                    backgroundColor: isPremium ? selectedColor : '#E0E0E0',
+                    borderWidth: isPremium ? 0 : 1,
+                    borderColor: '#CCCCCC',
+                    opacity: isPremium ? 1 : 0.7,
+                  },
+                ]}
+                onPress={() => {
+                  if (isPremium) {
+                    setShowColorPicker(true);
+                  } else {
+                    Alert.alert(
+                      'Premium Feature',
+                      'Custom colors are available with Premium. Upgrade to unlock unlimited color choices!',
+                      [
+                        { text: 'Maybe Later', style: 'cancel' },
+                        {
+                          text: 'Upgrade to Premium',
+                          onPress: () => {
+                            onClose();
+                            onUpgradePremium();
+                          },
+                        },
+                      ]
+                    );
+                  }
+                }}
+              >
+                <Text
+                  style={[
+                    addHabitStyles.colorPickerButtonText,
+                    { color: isPremium ? '#FFFFFF' : '#999999' },
+                  ]}
+                >
+                  {isPremium ? '🎨 Pick any Color' : '🔒 Pick any Color'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Preset Colors - Always visible */}
+              <Text
+                style={[
+                  addHabitStyles.label,
+                  { marginTop: 16, marginBottom: 8 },
+                ]}
+              >
+                Or choose a preset color:
+              </Text>
               <View style={addHabitStyles.colorGrid}>
                 {HABIT_COLORS.map(color => (
                   <TouchableOpacity
@@ -544,6 +671,19 @@ const AddHabitModal = ({
                   </TouchableOpacity>
                 ))}
               </View>
+
+              {/* Color Picker Modal - Only for premium users */}
+              {isPremium && (
+                <ColorPickerModal
+                  visible={showColorPicker}
+                  initialColor={selectedColor}
+                  onClose={() => setShowColorPicker(false)}
+                  onSelect={color => {
+                    setSelectedColor(color);
+                    setShowColorPicker(false);
+                  }}
+                />
+              )}
 
               <Text style={addHabitStyles.label}>Track on these days:</Text>
               <View style={addHabitStyles.daySelector}>
@@ -1056,6 +1196,136 @@ const SettingsModal = ({
                   </Text>
                 </TouchableOpacity>
               )}
+            </View>
+
+            <View style={settingsStyles.settingsSection}>
+              <Text
+                style={[
+                  settingsStyles.sectionTitle,
+                  { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                ]}
+              >
+                Statistics
+              </Text>
+              <View
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
+              >
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
+                  Days Conquered:{' '}
+                  {(() => {
+                    const habitDays = habitData[selectedHabit?.id] || {};
+                    return Object.values(habitDays).filter(
+                      status => status === 'completed'
+                    ).length;
+                  })()}
+                </Text>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
+                  Total completed days for this habit
+                </Text>
+              </View>
+              <View
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
+              >
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
+                  Personal Best:{' '}
+                  {(() => {
+                    if (!selectedHabit?.id || !habitData[selectedHabit.id])
+                      return 'Get started!';
+
+                    const trackingDays = selectedHabit.trackingDays || [
+                      0, 1, 2, 3, 4, 5, 6,
+                    ];
+                    const completedDates = Object.keys(
+                      habitData[selectedHabit.id]
+                    )
+                      .filter(
+                        date =>
+                          habitData[selectedHabit.id][date] === 'completed'
+                      )
+                      .sort();
+
+                    if (completedDates.length === 0) return 'Get started!';
+
+                    let longestStreak = 0;
+                    let currentStreak = 0;
+                    let lastCompletedTrackingDate = null;
+
+                    for (let i = 0; i < completedDates.length; i++) {
+                      const currentDate = new Date(
+                        completedDates[i] + 'T00:00:00'
+                      );
+                      const currentDayOfWeek = currentDate.getDay();
+
+                      if (!trackingDays.includes(currentDayOfWeek)) continue;
+
+                      if (lastCompletedTrackingDate === null) {
+                        currentStreak = 1;
+                      } else {
+                        let expectedDate = new Date(lastCompletedTrackingDate);
+                        let foundNextTrackingDay = false;
+
+                        for (let j = 0; j < 7; j++) {
+                          expectedDate.setDate(expectedDate.getDate() + 1);
+                          const expectedDayOfWeek = expectedDate.getDay();
+
+                          if (trackingDays.includes(expectedDayOfWeek)) {
+                            const expectedDateString = expectedDate
+                              .toISOString()
+                              .split('T')[0];
+                            if (expectedDateString === completedDates[i]) {
+                              currentStreak++;
+                              foundNextTrackingDay = true;
+                            } else {
+                              currentStreak = 1;
+                            }
+                            break;
+                          }
+                        }
+
+                        if (!foundNextTrackingDay) {
+                          currentStreak = 1;
+                        }
+                      }
+
+                      longestStreak = Math.max(longestStreak, currentStreak);
+                      lastCompletedTrackingDate = currentDate;
+                    }
+
+                    if (longestStreak === 0) return 'Get started!';
+                    if (longestStreak === 1) return '1 day!';
+                    return `${longestStreak} days straight!`;
+                  })()}
+                </Text>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
+                  Your longest consecutive streak
+                </Text>
+              </View>
             </View>
 
             <View style={settingsStyles.settingsSection}>
@@ -1635,6 +1905,47 @@ const SettingsModal = ({
                   ]}
                 >
                   Get help with the app
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={settingsStyles.settingsSection}>
+              <Text style={settingsStyles.sectionTitle}>Community</Text>
+
+              <TouchableOpacity
+                style={[
+                  settingsStyles.settingItem,
+                  { backgroundColor: theme === 'dark' ? '#2C2C2E' : '#F8F9FA' },
+                ]}
+                onPress={async () => {
+                  try {
+                    const url = 'https://www.facebook.com/HabitTrackerPro';
+                    const supported = await Linking.canOpenURL(url);
+                    if (supported) {
+                      await Linking.openURL(url);
+                    } else {
+                      Alert.alert('Error', 'Could not open community page');
+                    }
+                  } catch (error) {
+                    Alert.alert('Error', 'Could not open community page');
+                  }
+                }}
+              >
+                <Text
+                  style={[
+                    settingsStyles.settingItemText,
+                    { color: theme === 'dark' ? '#FFFFFF' : '#333333' },
+                  ]}
+                >
+                  Join Our Community
+                </Text>
+                <Text
+                  style={[
+                    settingsStyles.settingItemSubtext,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666666' },
+                  ]}
+                >
+                  Connect with other habit builders and get motivation
                 </Text>
               </TouchableOpacity>
             </View>
@@ -3111,6 +3422,8 @@ export default function HomeScreen() {
           onClose={() => setShowEditHabit(false)}
           habit={selectedHabit}
           onUpdateHabit={handleUpdateHabit}
+          isPremium={isPremium}
+          onUpgradePremium={handleUpgradePremium}
         />
 
         <Modal
@@ -3144,6 +3457,8 @@ export default function HomeScreen() {
           habitData={habitData}
           selectedHabit={selectedHabit}
           theme={theme}
+          isPremium={isPremium}
+          onUpgradePremium={handleUpgradePremium}
         />
       </ScrollView>{' '}
       {/* ✅ ADD THIS LINE */}
@@ -3349,6 +3664,26 @@ const habitSelectorStyles = StyleSheet.create({
 
 // Add Habit Modal Styles
 const addHabitStyles = StyleSheet.create({
+  colorPickerButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  colorPickerButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -3429,13 +3764,14 @@ const addHabitStyles = StyleSheet.create({
   colorGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    marginHorizontal: -2,
   },
   colorOption: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    margin: 4,
+    margin: 5,
     alignItems: 'center',
     justifyContent: 'center',
   },

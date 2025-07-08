@@ -1,3 +1,5 @@
+// Enhanced ProgressGraph.js with Professional Polish and Fixed Export
+
 import {
   eachMonthOfInterval,
   endOfMonth,
@@ -6,9 +8,13 @@ import {
   startOfMonth,
   subMonths,
 } from 'date-fns';
-import React, { useEffect, useState } from 'react';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Modal,
   Platform,
@@ -19,6 +25,7 @@ import {
   View,
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
+import { captureRef } from 'react-native-view-shot';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -28,10 +35,16 @@ export default function ProgressGraph({
   habitData,
   selectedHabit,
   theme,
+  isPremium,
+  onUpgradePremium,
 }) {
   const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('6months');
+  const [exporting, setExporting] = useState(false);
+
+  // Ref for capturing the graph
+  const graphRef = useRef(null);
 
   useEffect(() => {
     if (visible && selectedHabit && habitData[selectedHabit.id]) {
@@ -83,6 +96,123 @@ export default function ProgressGraph({
     setLoading(false);
   };
 
+  // Export functionality with high quality
+  const exportGraph = async () => {
+    if (!isPremium) {
+      Alert.alert(
+        'Premium Feature',
+        'Graph export is available with Premium subscription. Upgrade to unlock this feature!',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          {
+            text: 'Upgrade to Premium',
+            onPress: () => {
+              onClose();
+              onUpgradePremium?.();
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    try {
+      setExporting(true);
+
+      // Request media library permissions
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please grant photo library access to save your progress graph.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Grant Permission',
+              onPress: () => MediaLibrary.requestPermissionsAsync(),
+            },
+          ]
+        );
+        setExporting(false);
+        return;
+      }
+
+      // Wait for UI to settle
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Capture with high quality settings - let it auto-size based on content
+      const uri = await captureRef(graphRef, {
+        format: 'png',
+        quality: 1.0,
+        result: 'tmpfile',
+        // Remove fixed dimensions to maintain aspect ratio
+      });
+
+      // Show export options
+      Alert.alert(
+        'Export Progress Graph',
+        'How would you like to share your progress?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Save to Photos', onPress: () => saveToPhotos(uri) },
+          { text: 'Share', onPress: () => shareGraph(uri) },
+        ]
+      );
+    } catch (error) {
+      console.error('Export error:', error);
+      Alert.alert(
+        'Export Failed',
+        'Unable to export your progress graph. Please try again.'
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const saveToPhotos = async uri => {
+    try {
+      await MediaLibrary.saveToLibraryAsync(uri);
+      Alert.alert('Success!', 'Your progress graph has been saved to Photos.', [
+        { text: 'Great!', style: 'default' },
+      ]);
+    } catch (error) {
+      console.error('Save to photos error:', error);
+      Alert.alert('Save Failed', 'Unable to save to Photos. Please try again.');
+    }
+  };
+
+  const shareGraph = async uri => {
+    try {
+      const fileName = `${selectedHabit.name.replace(/[^a-zA-Z0-9]/g, '_')}_progress_${format(new Date(), 'yyyy_MM_dd')}.png`;
+      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
+
+      await FileSystem.copyAsync({
+        from: uri,
+        to: fileUri,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'image/png',
+          dialogTitle: `Share ${selectedHabit.name} Progress`,
+        });
+      } else {
+        Alert.alert(
+          'Sharing not available',
+          'Sharing is not available on this device.'
+        );
+      }
+
+      await FileSystem.deleteAsync(fileUri, { idempotent: true });
+    } catch (error) {
+      console.error('Share error:', error);
+      Alert.alert(
+        'Share Failed',
+        'Unable to share your progress graph. Please try again.'
+      );
+    }
+  };
+
   const color = selectedHabit?.color || '#4CAF50';
 
   const labels = chartData.map((_, i) =>
@@ -95,19 +225,34 @@ export default function ProgressGraph({
     )
   );
 
-  const config = {
+  const chartConfig = {
     backgroundGradientFrom: theme === 'dark' ? '#1C1C1E' : '#FFFFFF',
     backgroundGradientTo: theme === 'dark' ? '#1C1C1E' : '#FFFFFF',
-    color: () => color,
-    labelColor: () => (theme === 'dark' ? '#8E8E93' : '#666666'),
+    backgroundGradientFromOpacity: 0,
+    backgroundGradientToOpacity: 0,
+    color: (opacity = 1) => color,
+    labelColor: (opacity = 1) => (theme === 'dark' ? '#8E8E93' : '#666666'),
     strokeWidth: 3,
-    propsForDots: { r: '4', strokeWidth: '2', stroke: color },
+    barPercentage: 0.5,
+    useShadowColorFromDataset: false,
+    propsForBackgroundLines: {
+      strokeDasharray: '',
+      stroke: theme === 'dark' ? '#2C2C2E' : '#E0E0E0',
+      strokeWidth: 1,
+    },
+    propsForDots: {
+      r: '5',
+      strokeWidth: '2',
+      stroke: color,
+      fill: '#FFFFFF',
+    },
+    decimalPlaces: 0,
   };
 
   const trend = () => {
     if (chartData.length < 2) return '';
-    const recent = chartData.slice(-3),
-      older = chartData.slice(0, -3);
+    const recent = chartData.slice(-3);
+    const older = chartData.slice(0, -3);
     const avgR = recent.reduce((a, b) => a + b, 0) / recent.length;
     const avgO = older.length
       ? older.reduce((a, b) => a + b, 0) / older.length
@@ -152,18 +297,45 @@ export default function ProgressGraph({
             >
               Progress Graph
             </Text>
-            <TouchableOpacity onPress={onClose}>
-              <Text
-                style={{
-                  fontSize: 18,
-                  color: theme === 'dark' ? '#FFF' : '#666',
-                }}
+            <View style={styles.headerButtons}>
+              <TouchableOpacity
+                style={[
+                  styles.exportButton,
+                  {
+                    backgroundColor: isPremium ? color : '#8E8E93',
+                    opacity: exporting ? 0.6 : 1,
+                  },
+                ]}
+                onPress={exportGraph}
+                disabled={exporting}
               >
-                ✕
-              </Text>
-            </TouchableOpacity>
+                {exporting ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={styles.exportButtonText}>
+                    {isPremium ? '📤 Export' : '🔒 Export'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Text
+                  style={[
+                    styles.closeButtonText,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666' },
+                  ]}
+                >
+                  ✕
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 16 }}>
+
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Habit Info Card */}
             <View
               style={[
                 styles.info,
@@ -171,7 +343,7 @@ export default function ProgressGraph({
               ]}
             >
               <View style={[styles.dot, { backgroundColor: color }]} />
-              <View>
+              <View style={styles.habitInfo}>
                 <Text
                   style={[
                     styles.habitTitle,
@@ -182,100 +354,210 @@ export default function ProgressGraph({
                 </Text>
                 {selectedHabit.description ? (
                   <Text
-                    style={{
-                      color: theme === 'dark' ? '#8E8E93' : '#666',
-                      fontSize: 12,
-                    }}
+                    style={[
+                      styles.habitDescription,
+                      { color: theme === 'dark' ? '#8E8E93' : '#666' },
+                    ]}
                   >
                     {selectedHabit.description}
                   </Text>
                 ) : null}
               </View>
             </View>
-            <View style={{ flexDirection: 'row', marginVertical: 12 }}>
+
+            {/* Time Range Selector */}
+            <View style={styles.rangeContainer}>
               {['3months', '6months', '1year', 'all'].map(val => (
                 <TouchableOpacity
                   key={val}
                   onPress={() => setTimeRange(val)}
                   style={[
                     styles.rangeBtn,
-                    timeRange === val && { backgroundColor: color },
+                    {
+                      backgroundColor:
+                        timeRange === val ? color : 'transparent',
+                      borderColor:
+                        timeRange === val
+                          ? color
+                          : theme === 'dark'
+                            ? '#38383A'
+                            : '#E0E0E0',
+                    },
                   ]}
                 >
                   <Text
-                    style={{
-                      color:
-                        timeRange === val
-                          ? '#FFF'
-                          : theme === 'dark'
+                    style={[
+                      styles.rangeBtnText,
+                      {
+                        color:
+                          timeRange === val
                             ? '#FFF'
-                            : '#333',
-                    }}
+                            : theme === 'dark'
+                              ? '#8E8E93'
+                              : '#666',
+                        fontWeight: timeRange === val ? '600' : '500',
+                      },
+                    ]}
                   >
                     {val === 'all' ? 'All Time' : val.replace('months', ' mo')}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
+
             {loading ? (
-              <ActivityIndicator size="large" color={color} />
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={color} />
+                <Text
+                  style={[
+                    styles.loadingText,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666' },
+                  ]}
+                >
+                  Loading your progress...
+                </Text>
+              </View>
             ) : chartData.length > 0 ? (
               <>
-                {Platform.OS === 'web' ? (
-                  <View style={styles.webFallback}>
-                    <Text style={{ color: theme === 'dark' ? '#FFF' : '#333' }}>
-                      Chart not available on web
+                {/* Graph Container - This gets captured */}
+                <View
+                  ref={graphRef}
+                  style={[
+                    styles.graphContainer,
+                    {
+                      backgroundColor: theme === 'dark' ? '#1C1C1E' : '#FFFFFF',
+                    },
+                  ]}
+                  collapsable={false}
+                >
+                  {/* Export Header */}
+                  <View style={styles.exportHeader}>
+                    <Text
+                      style={[
+                        styles.exportTitle,
+                        { color: theme === 'dark' ? '#FFF' : '#333' },
+                      ]}
+                    >
+                      {selectedHabit.name} Progress
+                    </Text>
+                    <Text
+                      style={[
+                        styles.exportSubtitle,
+                        { color: theme === 'dark' ? '#8E8E93' : '#666' },
+                      ]}
+                    >
+                      HabitTracker • {format(new Date(), 'MMM yyyy')}
                     </Text>
                   </View>
-                ) : (
-                  <LineChart
-                    data={{ labels, datasets: [{ data: chartData }] }}
-                    width={screenWidth - 64}
-                    height={220}
-                    chartConfig={config}
-                    bezier
-                    style={{ borderRadius: 16 }}
-                    fromZero
-                  />
-                )}
-                <View style={styles.stats}>
-                  <Text style={[styles.statText, { color }]}>
-                    {chartData[chartData.length - 1] || 0}%
-                  </Text>
-                  <Text style={{ color: theme === 'dark' ? '#FFF' : '#333' }}>
-                    Current Month
-                  </Text>
-                  <Text
-                    style={{
-                      color: theme === 'dark' ? '#FFF' : '#333',
-                      marginLeft: 20,
-                    }}
-                  >
-                    {Math.round(
-                      chartData.reduce((a, b) => a + b, 0) / chartData.length
-                    )}
-                    % Avg
-                  </Text>
+
+                  {/* Chart */}
+                  {Platform.OS === 'web' ? (
+                    <View style={styles.webFallback}>
+                      <Text
+                        style={{ color: theme === 'dark' ? '#FFF' : '#333' }}
+                      >
+                        Chart not available on web
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.chartWrapper}>
+                      <LineChart
+                        data={{
+                          labels,
+                          datasets: [
+                            {
+                              data: chartData,
+                              color: (opacity = 1) => color,
+                              strokeWidth: 3,
+                            },
+                          ],
+                        }}
+                        width={screenWidth - 80}
+                        height={220}
+                        chartConfig={chartConfig}
+                        bezier
+                        style={styles.chart}
+                        withInnerLines={true}
+                        withOuterLines={false}
+                        withVerticalLines={true}
+                        withHorizontalLines={true}
+                        withVerticalLabels={true}
+                        withHorizontalLabels={true}
+                        segments={4}
+                        fromZero
+                        yAxisLabel=""
+                        yAxisSuffix="%"
+                      />
+                    </View>
+                  )}
+
+                  {/* Stats Grid */}
+                  <View style={styles.statsGrid}>
+                    <View style={styles.statItem}>
+                      <Text style={[styles.statValue, { color }]}>
+                        {chartData[chartData.length - 1] || 0}%
+                      </Text>
+                      <Text
+                        style={[
+                          styles.statLabel,
+                          { color: theme === 'dark' ? '#8E8E93' : '#666' },
+                        ]}
+                      >
+                        Current Month
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.statDivider,
+                        {
+                          backgroundColor:
+                            theme === 'dark' ? '#38383A' : '#E0E0E0',
+                        },
+                      ]}
+                    />
+                    <View style={styles.statItem}>
+                      <Text style={[styles.statValue, { color }]}>
+                        {Math.round(
+                          chartData.reduce((a, b) => a + b, 0) /
+                            chartData.length
+                        )}
+                        %
+                      </Text>
+                      <Text
+                        style={[
+                          styles.statLabel,
+                          { color: theme === 'dark' ? '#8E8E93' : '#666' },
+                        ]}
+                      >
+                        Average
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Trend */}
+                  <View style={styles.trendContainer}>
+                    <Text
+                      style={[
+                        styles.trendText,
+                        { color: theme === 'dark' ? '#8E8E93' : '#666' },
+                      ]}
+                    >
+                      {trend()}
+                    </Text>
+                  </View>
                 </View>
-                <Text
-                  style={{
-                    color: theme === 'dark' ? '#FFF' : '#333',
-                    marginTop: 12,
-                  }}
-                >
-                  {trend()}
-                </Text>
               </>
             ) : (
-              <Text
-                style={{
-                  color: theme === 'dark' ? '#8E8E93' : '#666',
-                  textAlign: 'center',
-                  marginTop: 20,
-                }}
-              >
-                No data for this period
-              </Text>
+              <View style={styles.emptyState}>
+                <Text
+                  style={[
+                    styles.emptyStateText,
+                    { color: theme === 'dark' ? '#8E8E93' : '#666' },
+                  ]}
+                >
+                  No data available for this period
+                </Text>
+              </View>
             )}
           </ScrollView>
         </View>
@@ -285,38 +567,194 @@ export default function ProgressGraph({
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  overlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
   modal: {
-    width: '90%',
-    maxHeight: '90%',
-    borderRadius: 12,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    borderRadius: 16,
     overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#CCC',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#38383A',
   },
-  title: { fontSize: 20, fontWeight: 'bold' },
+  title: {
+    fontSize: 20,
+    fontWeight: '600',
+    letterSpacing: -0.3,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  exportButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 90,
+  },
+  exportButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonText: {
+    fontSize: 18,
+    fontWeight: '500',
+  },
+  scrollContent: {
+    paddingVertical: 20,
+  },
   info: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
+    marginHorizontal: 20,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
   },
-  dot: { width: 16, height: 16, borderRadius: 8, marginRight: 8 },
-  habitTitle: { fontSize: 16, fontWeight: '600' },
+  dot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 12,
+  },
+  habitInfo: {
+    flex: 1,
+  },
+  habitTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  habitDescription: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  rangeContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    gap: 8,
+  },
   rangeBtn: {
-    padding: 8,
+    flex: 1,
+    paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#CCC',
-    marginRight: 8,
+    alignItems: 'center',
   },
-  webFallback: { height: 200, justifyContent: 'center', alignItems: 'center' },
-  stats: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
-  statText: { fontSize: 24, fontWeight: 'bold' },
+  rangeBtnText: {
+    fontSize: 13,
+  },
+  loadingContainer: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+  },
+  graphContainer: {
+    marginHorizontal: 20,
+    padding: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  exportHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  exportTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  exportSubtitle: {
+    fontSize: 12,
+  },
+  chartWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  chart: {
+    borderRadius: 8,
+    paddingRight: 0,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    marginHorizontal: 20,
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  trendContainer: {
+    alignItems: 'center',
+  },
+  trendText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  webFallback: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyState: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 20,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
 });

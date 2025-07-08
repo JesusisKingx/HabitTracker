@@ -200,6 +200,24 @@ const Subscriptions = ({
             Track unlimited habits and unlock all features
           </Text>
 
+          {/* Free Trial Banner - Only show if monthly plan exists and user hasn't purchased it */}
+          {subscriptions.some(
+            sub =>
+              sub.productId === 'habittracker.premium.monthly.v2' &&
+              !purchaseHistory.find(
+                p => p.productId === 'habittracker.premium.monthly.v2'
+              )
+          ) && (
+            <View style={styles.freeTrialBanner}>
+              <Text style={styles.freeTrialText}>
+                🎁 3-Day Free Trial Available!
+              </Text>
+              <Text style={styles.freeTrialSubtext}>
+                Try premium features risk-free
+              </Text>
+            </View>
+          )}
+
           {subscriptions.map((subscription, index) => {
             const owned = purchaseHistory.find(
               p => p.productId === subscription.productId
@@ -288,6 +306,26 @@ const Subscriptions = ({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
+  freeTrialBanner: {
+    backgroundColor: '#E8F5E8',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 10,
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+    alignItems: 'center',
+  },
+  freeTrialText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2E7D32',
+    marginBottom: 4,
+  },
+  freeTrialSubtext: {
+    fontSize: 14,
+    color: '#388E3C',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
