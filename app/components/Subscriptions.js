@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -42,6 +42,8 @@ const errorLog = ({ message, error }) => {
 const Subscriptions = ({ onSuccess, onClose }) => {
   const router = useRouter();
   const { from } = useLocalSearchParams();
+  const loadingRef = useRef(false);
+  const retryTimeoutRef = useRef(null);
 
   const setPremium = useUserStore(state => state.setPremium);
 
@@ -56,6 +58,7 @@ const Subscriptions = ({ onSuccess, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [processingPurchase, setProcessingPurchase] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   console.log('🔍 [IAP STATE] Component render - Connected:', connected);
   console.log(
@@ -101,37 +104,79 @@ const Subscriptions = ({ onSuccess, onClose }) => {
     );
   }
 
-  // Load subscriptions and purchase history
+  // Load subscriptions with proper error handling and debouncing
+  const loadSubscriptions = async () => {
+    if (loadingRef.current) {
+      console.log('⏳ [IAP] Load already in progress, skipping...');
+      return;
+    }
+
+    loadingRef.current = true;
+    setLoadError(null);
+
+    try {
+      console.log(
+        '📦 [IAP] Loading subscriptions with SKUs:',
+        subscriptionSkus
+      );
+
+      // Add small delay to prevent rapid requests
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      await getSubscriptions({ skus: subscriptionSkus });
+      console.log('✅ [IAP] Subscriptions loaded successfully');
+
+      console.log('📋 [IAP] Getting available purchases...');
+      await getAvailablePurchases();
+      console.log('✅ [IAP] Available purchases loaded');
+
+      setLoadError(null);
+    } catch (e) {
+      console.error('❌ [IAP] Load error:', e);
+      console.error('❌ [IAP] Load error message:', e.message);
+
+      setLoadError(e.message);
+
+      // Don't show alert for cancelled requests - just retry
+      if (!e.message.includes('cancelled')) {
+        Alert.alert('Error', 'Failed to load subscriptions.');
+      } else {
+        console.log('🔄 [IAP] Request cancelled, will retry...');
+        // Retry after delay
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+        }
+        retryTimeoutRef.current = setTimeout(() => {
+          if (connected && loadingRef.current) {
+            loadingRef.current = false;
+            loadSubscriptions();
+          }
+        }, 2000);
+      }
+    } finally {
+      loadingRef.current = false;
+      setInitialLoading(false);
+      console.log('🏁 [IAP] Initial loading complete');
+    }
+  };
+
+  // Load subscriptions when IAP connects
   useEffect(() => {
     console.log('🔄 [IAP] Connection effect triggered, connected:', connected);
-    const load = async () => {
-      try {
-        console.log(
-          '📦 [IAP] Loading subscriptions with SKUs:',
-          subscriptionSkus
-        );
-        await getSubscriptions({ skus: subscriptionSkus });
-        console.log('✅ [IAP] Subscriptions loaded successfully');
 
-        console.log('📋 [IAP] Getting available purchases...');
-        await getAvailablePurchases();
-        console.log('✅ [IAP] Available purchases loaded');
-      } catch (e) {
-        console.error('❌ [IAP] Load error:', e);
-        console.error('❌ [IAP] Load error message:', e.message);
-        Alert.alert('Error', 'Failed to load subscriptions.');
-      } finally {
-        console.log('🏁 [IAP] Initial loading complete');
-        setInitialLoading(false);
-      }
-    };
-
-    if (connected) {
+    if (connected && !loadingRef.current) {
       console.log('🚀 [IAP] IAP connected, starting load process');
-      load();
-    } else {
+      loadSubscriptions();
+    } else if (!connected) {
       console.log('⏳ [IAP] Waiting for IAP connection...');
     }
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
   }, [connected]);
 
   // Log subscription products when they change
@@ -411,6 +456,17 @@ const Subscriptions = ({ onSuccess, onClose }) => {
     router.back();
   };
 
+  const handleRetry = () => {
+    console.log('🔄 [IAP] User requested retry');
+    setLoadError(null);
+    setInitialLoading(true);
+    loadingRef.current = false;
+    if (connected) {
+      loadSubscriptions();
+    }
+  };
+
+  // Show loading screen
   if (!connected || initialLoading) {
     console.log(
       '⏳ [IAP] Showing loading screen - Connected:',
@@ -422,7 +478,42 @@ const Subscriptions = ({ onSuccess, onClose }) => {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#4CAF50" />
-          <Text style={styles.loadingText}>Loading...</Text>
+          <Text style={styles.loadingText}>Loading subscriptions...</Text>
+          {loadError && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>Failed to load</Text>
+              <TouchableOpacity
+                style={styles.retryButton}
+                onPress={handleRetry}
+              >
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Show error if no products loaded
+  if (!subscriptions || subscriptions.length === 0) {
+    console.log('❌ [IAP] No products loaded, showing error');
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.centerContainer}>
+          <Text style={styles.errorText}>No Subscriptions Available</Text>
+          <Text style={styles.subText}>
+            Unable to load subscription products. Please try again.
+          </Text>
+          <TouchableOpacity style={styles.continueButton} onPress={handleRetry}>
+            <Text style={styles.buttonText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={handleCancel}
+          >
+            <Text style={styles.secondaryButtonText}>Cancel</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -539,6 +630,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
   },
+  errorContainer: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  retryButton: {
+    marginTop: 10,
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   wrapper: {
     padding: 20,
   },
@@ -639,6 +746,7 @@ const styles = StyleSheet.create({
     padding: 15,
     minWidth: 200,
     alignItems: 'center',
+    marginBottom: 10,
   },
   buttonText: {
     color: '#fff',
