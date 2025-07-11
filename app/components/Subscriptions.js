@@ -1,25 +1,25 @@
+import Constants from 'expo-constants';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  View,
-  Platform,
   TouchableOpacity,
-  SafeAreaView,
-  ActivityIndicator,
-  Alert,
+  View,
 } from 'react-native';
 import {
+  finishTransaction,
+  getAvailablePurchases,
   PurchaseError,
   requestSubscription,
   useIAP,
   withIAPContext,
-  finishTransaction,
-  getAvailablePurchases,
 } from 'react-native-iap';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import Constants from 'expo-constants';
 import useUserStore from '../store/useUserStore';
 
 const isIos = Platform.OS === 'ios';
@@ -29,6 +29,15 @@ const subscriptionSkus = Platform.select({
 
 const VALIDATION_URL = 'https://iap-receipt-server.onrender.com/verify-receipt';
 const isExpoGo = Constants.appOwnership === 'expo';
+
+console.log('🚀 [IAP] Subscriptions component loaded');
+console.log('🚀 [IAP] Platform:', Platform.OS);
+console.log('🚀 [IAP] Is Expo Go:', isExpoGo);
+console.log('🚀 [IAP] Subscription SKUs:', subscriptionSkus);
+
+const errorLog = ({ message, error }) => {
+  console.error('❌ [IAP ERROR]', message, error);
+};
 
 const Subscriptions = ({ onSuccess, onClose }) => {
   const router = useRouter();
@@ -48,8 +57,28 @@ const Subscriptions = ({ onSuccess, onClose }) => {
   const [initialLoading, setInitialLoading] = useState(true);
   const [processingPurchase, setProcessingPurchase] = useState(null);
 
+  console.log('🔍 [IAP STATE] Component render - Connected:', connected);
+  console.log(
+    '🔍 [IAP STATE] Subscriptions count:',
+    subscriptions?.length || 0
+  );
+  console.log(
+    '🔍 [IAP STATE] Available purchases:',
+    availablePurchases?.length || 0
+  );
+  console.log(
+    '🔍 [IAP STATE] Current purchase:',
+    currentPurchase ? 'In Progress' : 'None'
+  );
+  console.log('🔍 [IAP STATE] Loading states:', {
+    loading,
+    initialLoading,
+    processingPurchase,
+  });
+
   // Handle Expo Go scenario
   if (isExpoGo && Platform.OS !== 'web') {
+    console.log('⚠️ [IAP] Running in Expo Go - IAP not available');
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContainer}>
@@ -60,6 +89,7 @@ const Subscriptions = ({ onSuccess, onClose }) => {
           <TouchableOpacity
             style={styles.continueButton}
             onPress={() => {
+              console.log('📱 [IAP] User continuing without premium');
               onSuccess?.();
               router.back();
             }}
@@ -73,85 +103,174 @@ const Subscriptions = ({ onSuccess, onClose }) => {
 
   // Load subscriptions and purchase history
   useEffect(() => {
+    console.log('🔄 [IAP] Connection effect triggered, connected:', connected);
     const load = async () => {
       try {
+        console.log(
+          '📦 [IAP] Loading subscriptions with SKUs:',
+          subscriptionSkus
+        );
         await getSubscriptions({ skus: subscriptionSkus });
+        console.log('✅ [IAP] Subscriptions loaded successfully');
+
+        console.log('📋 [IAP] Getting available purchases...');
         await getAvailablePurchases();
+        console.log('✅ [IAP] Available purchases loaded');
       } catch (e) {
-        console.error('[IAP] Load error:', e);
+        console.error('❌ [IAP] Load error:', e);
+        console.error('❌ [IAP] Load error message:', e.message);
         Alert.alert('Error', 'Failed to load subscriptions.');
       } finally {
+        console.log('🏁 [IAP] Initial loading complete');
         setInitialLoading(false);
       }
     };
-    if (connected) load();
+
+    if (connected) {
+      console.log('🚀 [IAP] IAP connected, starting load process');
+      load();
+    } else {
+      console.log('⏳ [IAP] Waiting for IAP connection...');
+    }
   }, [connected]);
 
-  // Validate purchase when currentPurchase updates
+  // Log subscription products when they change
+  useEffect(() => {
+    if (subscriptions && subscriptions.length > 0) {
+      console.log('🎯 [IAP] Products loaded:', subscriptions.length);
+      console.log(
+        '🎯 [IAP] Product details:',
+        subscriptions.map(s => ({
+          productId: s.productId,
+          price: s.price,
+          localizedPrice: s.localizedPrice,
+          title: s.title,
+          description: s.description,
+        }))
+      );
+    } else {
+      console.log('📭 [IAP] No products available yet');
+    }
+  }, [subscriptions]);
+
+  // Log available purchases when they change
+  useEffect(() => {
+    if (availablePurchases && availablePurchases.length > 0) {
+      console.log('💰 [IAP] Available purchases:', availablePurchases.length);
+      console.log(
+        '💰 [IAP] Purchase details:',
+        availablePurchases.map(p => ({
+          productId: p.productId,
+          transactionId: p.transactionId,
+          transactionDate: p.transactionDate,
+        }))
+      );
+    } else {
+      console.log('💸 [IAP] No available purchases');
+    }
+  }, [availablePurchases]);
+
+  // Handle current purchase processing
   useEffect(() => {
     const validatePurchase = async () => {
-      if (
-        !currentPurchase?.transactionReceipt ||
-        processingPurchase === currentPurchase.transactionId
-      )
-        return;
-      setProcessingPurchase(currentPurchase.transactionId);
+      if (!currentPurchase) return;
+
+      console.log('🛒 [IAP] Processing current purchase:', {
+        productId: currentPurchase.productId,
+        transactionId: currentPurchase.transactionId,
+        transactionDate: currentPurchase.transactionDate,
+      });
+
+      setProcessingPurchase(currentPurchase.productId);
       setLoading(true);
 
       try {
+        const receipt = currentPurchase.transactionReceipt;
+        console.log('📄 [IAP] Receipt length:', receipt?.length || 0);
+        console.log(
+          '📄 [IAP] Receipt preview:',
+          receipt?.substring(0, 100) + '...'
+        );
+
+        console.log('🌐 [IAP] Validating receipt with server:', VALIDATION_URL);
         const response = await fetch(VALIDATION_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            receiptData: currentPurchase.transactionReceipt,
+            receiptData: receipt,
             productId: currentPurchase.productId,
             environment: __DEV__ ? 'sandbox' : 'production',
           }),
         });
 
         const result = await response.json();
-        console.log('[IAP] Server response:', result);
+        console.log('✅ [IAP] Validation response:', {
+          status: result.status,
+          valid: result.valid,
+          environment: result.environment,
+        });
 
         if (result.status === 0 || result.valid === true) {
+          console.log('🎉 [IAP] Purchase validation successful!');
           setPremium(true);
-          Alert.alert('Purchase Success', 'You now have premium access.', [
+          onSuccess?.();
+
+          Alert.alert('Purchase Successful', 'Welcome to Premium! 🎉', [
             {
               text: 'OK',
               onPress: () => {
-                onSuccess?.();
+                console.log(
+                  '📱 [IAP] User acknowledged success, navigating back'
+                );
                 if (from === 'settings') router.replace('/settings');
                 else router.replace('/');
               },
             },
           ]);
         } else {
+          console.log('❌ [IAP] Purchase validation failed:', result);
           Alert.alert('Validation Failed', 'Unable to verify your purchase.');
         }
       } catch (err) {
-        console.error('[IAP] Validation error:', err);
+        console.error('❌ [IAP] Validation error:', err);
+        console.error('❌ [IAP] Validation error message:', err.message);
         Alert.alert('Error', 'Failed to validate purchase.');
       } finally {
         try {
+          console.log('🔚 [IAP] Finishing transaction...');
           await finishTransaction(currentPurchase);
+          console.log('✅ [IAP] Transaction finished successfully');
         } catch (finishErr) {
-          console.error('[IAP] Finish transaction error:', finishErr);
+          console.error('❌ [IAP] Finish transaction error:', finishErr);
         }
         setProcessingPurchase(null);
         setLoading(false);
+        console.log('🏁 [IAP] Purchase processing complete');
       }
     };
 
-    if (currentPurchase) validatePurchase();
+    if (currentPurchase) {
+      console.log('🚀 [IAP] New purchase detected, starting validation');
+      validatePurchase();
+    }
   }, [currentPurchase]);
 
   // Update premium status based on available purchases
   useEffect(() => {
     const validateActiveSubscriptions = async () => {
+      console.log('🔍 [IAP] Checking for active subscriptions...');
       const active = availablePurchases.find(p =>
         subscriptionSkus.includes(p.productId)
       );
+
       if (active && active.transactionReceipt) {
+        console.log('💎 [IAP] Found active subscription:', {
+          productId: active.productId,
+          transactionId: active.transactionId,
+        });
+
         try {
+          console.log('🌐 [IAP] Validating active subscription...');
           const response = await fetch(VALIDATION_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -162,42 +281,88 @@ const Subscriptions = ({ onSuccess, onClose }) => {
             }),
           });
           const result = await response.json();
-          setPremium(result.status === 0 || result.valid === true);
+
+          const isValid = result.status === 0 || result.valid === true;
+          console.log('✅ [IAP] Active subscription validation:', {
+            valid: isValid,
+            status: result.status,
+          });
+
+          setPremium(isValid);
         } catch (err) {
-          console.error('[IAP] Active subscription validation error:', err);
+          console.error('❌ [IAP] Active subscription validation error:', err);
           setPremium(false);
         }
       } else {
+        console.log('💸 [IAP] No active subscriptions found');
         setPremium(false);
       }
     };
-    validateActiveSubscriptions();
+
+    if (availablePurchases && availablePurchases.length > 0) {
+      validateActiveSubscriptions();
+    }
   }, [availablePurchases]);
 
   const handleBuy = async productId => {
-    if (loading || processingPurchase) return;
+    if (loading || processingPurchase) {
+      console.log('⏳ [IAP] Purchase blocked - already processing');
+      return;
+    }
+
+    console.log('🛒 [IAP] Starting purchase for product:', productId);
+    console.log(
+      '🛒 [IAP] Product details:',
+      subscriptions.find(s => s.productId === productId)
+    );
+
     try {
       setLoading(true);
+      console.log('📱 [IAP] Requesting subscription...');
       await requestSubscription({ sku: productId });
+      console.log('✅ [IAP] Subscription request sent successfully');
     } catch (err) {
-      if (err instanceof PurchaseError && err.code === 'E_USER_CANCELLED')
+      if (err instanceof PurchaseError && err.code === 'E_USER_CANCELLED') {
+        console.log('🚫 [IAP] User cancelled purchase');
         return;
-      console.error('[IAP] Purchase error:', err);
+      }
+      console.error('❌ [IAP] Purchase error:', err);
+      console.error('❌ [IAP] Purchase error code:', err.code);
+      console.error('❌ [IAP] Purchase error message:', err.message);
       Alert.alert('Error', err.message || 'Could not complete purchase.');
     } finally {
       setLoading(false);
+      console.log('🏁 [IAP] Purchase attempt complete');
     }
   };
 
   const handleRestore = async () => {
-    if (loading || processingPurchase) return;
+    if (loading || processingPurchase) {
+      console.log('⏳ [IAP] Restore blocked - already processing');
+      return;
+    }
+
+    console.log('🔄 [IAP] Starting restore purchases...');
     setLoading(true);
+
     try {
+      console.log('📋 [IAP] Getting available purchases for restore...');
       const purchases = await getAvailablePurchases();
+      console.log(
+        '📋 [IAP] Found purchases for restore:',
+        purchases?.length || 0
+      );
+
       const active = purchases.find(p =>
         subscriptionSkus.includes(p.productId)
       );
+
       if (active && active.transactionReceipt) {
+        console.log(
+          '💎 [IAP] Found subscription to restore:',
+          active.productId
+        );
+
         const response = await fetch(VALIDATION_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -208,34 +373,51 @@ const Subscriptions = ({ onSuccess, onClose }) => {
           }),
         });
         const result = await response.json();
+
+        console.log('✅ [IAP] Restore validation result:', {
+          status: result.status,
+          valid: result.valid,
+        });
+
         if (result.status === 0 || result.valid === true) {
+          console.log('🎉 [IAP] Restore successful!');
           setPremium(true);
           Alert.alert('Restored', 'Subscription restored.');
           onSuccess?.();
           router.back();
         } else {
+          console.log('❌ [IAP] Restore validation failed');
           Alert.alert('Validation Failed', 'Restored subscription is invalid.');
         }
       } else {
+        console.log('💸 [IAP] No subscriptions found to restore');
         Alert.alert(
           'No Active Subscriptions',
           'No active subscriptions found.'
         );
       }
     } catch (error) {
-      console.error('[IAP] Restore error:', error);
+      console.error('❌ [IAP] Restore error:', error);
       Alert.alert('Restore Failed', 'Could not restore purchases.');
     } finally {
       setLoading(false);
+      console.log('🏁 [IAP] Restore process complete');
     }
   };
 
   const handleCancel = () => {
+    console.log('🚫 [IAP] User cancelled subscription flow');
     onClose?.();
     router.back();
   };
 
   if (!connected || initialLoading) {
+    console.log(
+      '⏳ [IAP] Showing loading screen - Connected:',
+      connected,
+      'Initial loading:',
+      initialLoading
+    );
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -250,6 +432,12 @@ const Subscriptions = ({ onSuccess, onClose }) => {
     subscriptionSkus.includes(p.productId)
   );
 
+  console.log('🎨 [IAP] Rendering subscription UI');
+  console.log(
+    '🎨 [IAP] Active subscription:',
+    activeSubscription?.productId || 'None'
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.wrapper}>
@@ -262,133 +450,201 @@ const Subscriptions = ({ onSuccess, onClose }) => {
           const buttonText = isCurrentPlan
             ? 'Current Plan'
             : activeSubscription
-              ? `Switch to ${s.title.split(' ')[0]}`
-              : 'Upgrade to Premium';
-          const isDisabled = loading || processingPurchase || isCurrentPlan;
+              ? 'Switch Plan'
+              : 'Subscribe';
+
+          console.log('🎨 [IAP] Rendering product:', {
+            productId: s.productId,
+            price: s.localizedPrice,
+            isCurrentPlan,
+            buttonText,
+          });
 
           return (
-            <View key={i} style={styles.subscriptionBox}>
-              <View style={styles.subscriptionHeader}>
-                <Text style={styles.subscriptionTitle}>{s.title}</Text>
-                <Text style={styles.subscriptionPrice}>{s.localizedPrice}</Text>
+            <View key={s.productId} style={styles.productContainer}>
+              <View style={styles.productInfo}>
+                <Text style={styles.productTitle}>{s.title}</Text>
+                <Text style={styles.productPrice}>{s.localizedPrice}</Text>
+                <Text style={styles.productDescription}>{s.description}</Text>
               </View>
-              <Text style={styles.subscriptionDescription}>
-                {s.description}
-              </Text>
               <TouchableOpacity
                 style={[
-                  styles.button,
-                  isCurrentPlan ? styles.continueButton : null,
-                  isDisabled && styles.disabledButton,
+                  styles.buyButton,
+                  isCurrentPlan && styles.currentPlanButton,
+                  (loading || processingPurchase === s.productId) &&
+                    styles.disabledButton,
                 ]}
-                onPress={() => handleBuy(s.productId)}
-                disabled={isDisabled}
+                onPress={() => {
+                  console.log('👆 [IAP] User tapped product:', s.productId);
+                  if (!isCurrentPlan) handleBuy(s.productId);
+                }}
+                disabled={loading || processingPurchase === s.productId}
               >
-                <Text style={styles.buttonText}>
-                  {loading ? 'Processing...' : buttonText}
-                </Text>
+                {processingPurchase === s.productId ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.buyButtonText}>{buttonText}</Text>
+                )}
               </TouchableOpacity>
             </View>
           );
         })}
 
-        <TouchableOpacity
-          style={[styles.button, { backgroundColor: '#FFA500', marginTop: 10 }]}
-          onPress={handleRestore}
-          disabled={loading || processingPurchase}
-        >
-          <Text style={styles.buttonText}>Restore Purchases</Text>
-        </TouchableOpacity>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity
+            style={[styles.secondaryButton, loading && styles.disabledButton]}
+            onPress={() => {
+              console.log('👆 [IAP] User tapped restore');
+              handleRestore();
+            }}
+            disabled={loading}
+          >
+            <Text style={styles.secondaryButtonText}>Restore Purchases</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.button, { backgroundColor: '#ccc', marginTop: 10 }]}
-          onPress={handleCancel}
-        >
-          <Text style={[styles.buttonText, { color: '#333' }]}>
-            Cancel / Go Back
-          </Text>
-        </TouchableOpacity>
-
-        <Text style={styles.disclaimer}>
-          Subscriptions auto-renew. Cancel anytime in Settings.
-        </Text>
+          <TouchableOpacity
+            style={[styles.secondaryButton, loading && styles.disabledButton]}
+            onPress={() => {
+              console.log('👆 [IAP] User tapped cancel');
+              handleCancel();
+            }}
+            disabled={loading}
+          >
+            <Text style={styles.secondaryButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 };
 
-export default withIAPContext(Subscriptions);
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  wrapper: { padding: 20 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
-  loadingText: { marginTop: 10, fontSize: 16, color: '#666' },
-  errorText: {
-    fontSize: 18,
-    color: '#f44336',
-    textAlign: 'center',
-    fontWeight: '600',
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  subText: {
-    fontSize: 14,
-    color: '#666',
+  loadingText: {
     marginTop: 10,
-    textAlign: 'center',
-    paddingHorizontal: 20,
+    fontSize: 16,
+    color: '#666',
+  },
+  wrapper: {
+    padding: 20,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     textAlign: 'center',
+    marginBottom: 10,
     color: '#333',
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 30,
+    color: '#666',
   },
-  subscriptionBox: {
+  productContainer: {
     backgroundColor: '#fff',
-    padding: 20,
     borderRadius: 12,
+    padding: 20,
     marginBottom: 15,
+    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 3,
   },
-  subscriptionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
+  productInfo: {
+    marginBottom: 15,
   },
-  subscriptionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  subscriptionPrice: { fontSize: 18, color: '#4CAF50', fontWeight: '600' },
-  subscriptionDescription: { fontSize: 14, color: '#555', lineHeight: 20 },
-  button: {
+  productTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: '#333',
+  },
+  productPrice: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    marginBottom: 5,
+  },
+  productDescription: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  buyButton: {
     backgroundColor: '#4CAF50',
-    paddingVertical: 14,
     borderRadius: 8,
-    marginTop: 15,
+    padding: 15,
     alignItems: 'center',
   },
-  continueButton: { backgroundColor: '#2196F3' },
-  disabledButton: { opacity: 0.7 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  disclaimer: {
-    fontSize: 12,
-    color: '#999',
+  currentPlanButton: {
+    backgroundColor: '#9E9E9E',
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  buyButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 20,
+  },
+  secondaryButton: {
+    padding: 15,
+    borderRadius: 8,
+    backgroundColor: '#e0e0e0',
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#333',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#f44336',
     textAlign: 'center',
-    marginTop: 30,
-    lineHeight: 18,
+    marginBottom: 10,
+  },
+  subText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  continueButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+    padding: 15,
+    minWidth: 200,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
+
+export default withIAPContext(Subscriptions);

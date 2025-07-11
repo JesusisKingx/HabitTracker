@@ -6,7 +6,10 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "ITUNES_SHARED_SECRET": "17c1aea7ec78475d8c8e0d73d57e764d"
+      }
     },
     "preview": {
       "distribution": "store",
