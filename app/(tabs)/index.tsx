@@ -2667,6 +2667,7 @@ const CalendarGrid = ({
 
 // Main component
 export default function HomeScreen() {
+  console.log('🚀 HomeScreen is rendering!');
   const scrollRef = useRef(null);
   // Initialize with empty data - we'll load from storage
   const [habitData, setHabitData] = useState({}); // { habitId: { date: status } }
@@ -3618,8 +3619,8 @@ export default function HomeScreen() {
           visible={showSubscriptions}
           onClose={() => setShowSubscriptions(false)}
           onSuccess={() => {
-            setIsPremium(true);
-            setShowSubscriptions(false);
+            setIsPremium(true); // ✅ Only update state
+            // Don't close modal — Subscriptions.js handles it after success alert
           }}
           restorePurchases={restorePurchases}
           theme={theme}
@@ -3705,8 +3706,8 @@ export default function HomeScreen() {
           visible={showSubscriptions}
           onClose={() => setShowSubscriptions(false)}
           onSuccess={() => {
-            setIsPremium(true);
-            setShowSubscriptions(false);
+            setIsPremium(true); // ✅ Only update state
+            // Don't close modal — Subscriptions.js handles it after success alert
           }}
           restorePurchases={restorePurchases}
           theme={theme}
